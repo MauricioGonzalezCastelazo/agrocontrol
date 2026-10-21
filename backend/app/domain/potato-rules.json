@@ -1,0 +1,29 @@
+{
+  "version": "potato-v2",
+  "input_decimals": 4,
+  "output_decimals": 8,
+  "rounding": "HALF_UP",
+  "max_quantity": "9999999999.9999",
+  "max_weight": "9999999999.9999",
+  "max_price": "99999999999999.9999",
+  "grades": [
+    { "code": "1RA", "description": "Papa bonita" },
+    { "code": "2DA", "description": "Papa bien" },
+    { "code": "3RA", "description": "Papa regular" },
+    { "code": "4TA", "description": "Papa pequeña" }
+  ],
+  "order_formulas": [
+    ["weight", ["sub", "gross_weight", "tare_weight"]],
+    ["total_quantity", ["sum", "quantity"]],
+    [
+      "weight_after_shrinkage",
+      ["sub", ["sub", "weight", "additional_shrinkage"], "total_quantity"]
+    ],
+    ["net_unit_weight", ["div", "weight_after_shrinkage", "total_quantity"]]
+  ],
+  "line_formulas": [
+    ["allocated_unit_weight", "net_unit_weight"],
+    ["allocated_net_weight", ["mul", "quantity", "net_unit_weight"]],
+    ["line_total", ["mul", "allocated_net_weight", "unit_price"]]
+  ]
+}

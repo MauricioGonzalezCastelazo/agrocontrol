@@ -1,0 +1,15 @@
+.git
+.env
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+.venv
+.local
+**/node_modules
+**/dist
+**/build
+**/*.egg-info
+**/__pycache__
+**/test-results
+**/playwright-report

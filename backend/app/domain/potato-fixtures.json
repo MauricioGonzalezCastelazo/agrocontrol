@@ -1,0 +1,114 @@
+[
+  {
+    "name": "single",
+    "gross": "1000",
+    "tare": "100",
+    "shrinkage": "50",
+    "quantities": ["100", "0", "0", "0"],
+    "prices": ["2.50", "0", "0", "0"],
+    "expected": {
+      "weight": "900.00000000",
+      "weight_after_shrinkage": "750.00000000",
+      "total_quantity": "100.00000000",
+      "net_unit_weight": "7.50000000",
+      "net_total_weight": "750.00000000",
+      "total_amount": "1875.00000000"
+    },
+    "line_totals": ["1875.00000000", "0.00000000", "0.00000000", "0.00000000"]
+  },
+  {
+    "name": "mixed",
+    "gross": "12000",
+    "tare": "2000",
+    "shrinkage": "400",
+    "quantities": ["100", "0", "700", "0"],
+    "prices": ["10", "0", "5", "0"],
+    "expected": {
+      "weight": "10000.00000000",
+      "weight_after_shrinkage": "8800.00000000",
+      "total_quantity": "800.00000000",
+      "net_unit_weight": "11.00000000",
+      "net_total_weight": "8800.00000000",
+      "total_amount": "49500.00000000"
+    },
+    "line_totals": [
+      "11000.00000000",
+      "0.00000000",
+      "38500.00000000",
+      "0.00000000"
+    ]
+  },
+  {
+    "name": "decimal",
+    "gross": "0.8",
+    "tare": "0.1",
+    "shrinkage": "0.1",
+    "quantities": ["0.1", "0.2", "0", "0"],
+    "prices": ["0.2", "0.3", "0", "0"],
+    "expected": {
+      "weight": "0.70000000",
+      "weight_after_shrinkage": "0.30000000",
+      "total_quantity": "0.30000000",
+      "net_unit_weight": "1.00000000",
+      "net_total_weight": "0.30000000",
+      "total_amount": "0.08000000"
+    },
+    "line_totals": ["0.02000000", "0.06000000", "0.00000000", "0.00000000"]
+  },
+  {
+    "name": "repeating",
+    "gross": "4",
+    "tare": "0",
+    "shrinkage": "0",
+    "quantities": ["1", "1", "1", "0"],
+    "prices": ["1", "1", "1", "0"],
+    "expected": {
+      "weight": "4.00000000",
+      "weight_after_shrinkage": "1.00000000",
+      "total_quantity": "3.00000000",
+      "net_unit_weight": "0.33333333",
+      "net_total_weight": "0.99999999",
+      "total_amount": "0.99999999"
+    },
+    "line_totals": ["0.33333333", "0.33333333", "0.33333333", "0.00000000"]
+  },
+  {
+    "name": "zero_weight",
+    "gross": "5",
+    "tare": "1",
+    "shrinkage": "3",
+    "quantities": ["1", "0", "0", "0"],
+    "prices": ["10", "0", "0", "0"],
+    "expected": {
+      "weight": "4.00000000",
+      "weight_after_shrinkage": "0.00000000",
+      "total_quantity": "1.00000000",
+      "net_unit_weight": "0.00000000",
+      "net_total_weight": "0.00000000",
+      "total_amount": "0.00000000"
+    },
+    "line_totals": ["0.00000000", "0.00000000", "0.00000000", "0.00000000"]
+  },
+  {
+    "name": "maximum",
+    "gross": "9999999999.9999",
+    "tare": "0",
+    "shrinkage": "0",
+    "quantities": ["1", "0", "0", "0"],
+    "prices": ["99999999999999.9999", "0", "0", "0"],
+    "expected": {
+      "weight": "9999999999.99990000",
+      "weight_after_shrinkage": "9999999998.99990000",
+      "total_quantity": "1.00000000",
+      "net_unit_weight": "9999999998.99990000",
+      "net_total_weight": "9999999998.99990000",
+      "total_amount": "999999999899989999000000.00010001"
+    },
+    "line_totals": [
+      "999999999899989999000000.00010001",
+      "0.00000000",
+      "0.00000000",
+      "0.00000000"
+    ]
+  }
+]

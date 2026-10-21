@@ -1,0 +1,5 @@
+{
+  "version": "attachments-v1",
+  "extensions": [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".pdf", ".xlsx", ".xls", ".docx", ".doc", ".txt", ".csv", ".odt", ".ods"],
+  "preview_types": ["image/jpeg", "image/png", "image/webp"]
+}

@@ -1,0 +1,63 @@
+name: agrocontrol
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: agrocontrol
+      POSTGRES_USER: agrocontrol
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agrocontrol -d agrocontrol"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment: &backend_environment
+      DATABASE_URL: postgresql+psycopg://agrocontrol:${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en .env}@db:5432/agrocontrol
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173","http://localhost:8080"]}
+      AUTH_ISSUER: ${AUTH_ISSUER:-}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-authenticated}
+      PRIVATE_FILES_PATH: /var/lib/agrocontrol/files
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    build: ./backend
+    environment: *backend_environment
+    volumes:
+      - private_files:/var/lib/agrocontrol/files
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:-}
+        VITE_ORGANIZATION_ID: ${VITE_ORGANIZATION_ID:-}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  private_files:
