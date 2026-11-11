@@ -101,12 +101,44 @@ def test_deleted_customer_hides_from_directory_but_preserves_orders(client, db, 
         "/api/v1/orders", headers=headers, json=order_payload(customer["id"])
     ).json()
     path = f"/api/v1/customers/{customer['id']}"
-    assert client.delete(path + "?expected_version=1", headers=headers).status_code == 403
+    assert (
+        client.request(
+            "DELETE",
+            path + "?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 403
+    )
     db.get(Membership, (ORG, USER)).role = "administrator"
     db.commit()
-    assert client.delete(path + "?expected_version=2", headers=headers).status_code == 409
-    assert client.delete(path + "?expected_version=1", headers=headers).status_code == 200
-    assert client.delete(path + "?expected_version=1", headers=headers).status_code == 200
+    assert (
+        client.request(
+            "DELETE",
+            path + "?expected_version=2",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 409
+    )
+    assert (
+        client.request(
+            "DELETE",
+            path + "?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.request(
+            "DELETE",
+            path + "?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 200
+    )
     assert client.get("/api/v1/customers", headers=headers).json()["total"] == 0
     assert client.get(path, headers=headers).status_code == 410
     assert (
@@ -152,13 +184,31 @@ def test_deleted_order_denies_files_edits_and_creation_retry(
     order = exercise_private_attachment(client, headers)
     path = f"/api/v1/orders/{order['id']}"
     current = client.get(path, headers=headers).json()
-    assert client.delete(path + "?expected_version=1", headers=headers).status_code == 409
     assert (
-        client.delete(path + f"?expected_version={current['version']}", headers=headers).status_code
+        client.request(
+            "DELETE",
+            path + "?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 409
+    )
+    assert (
+        client.request(
+            "DELETE",
+            path + f"?expected_version={current['version']}",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
         == 200
     )
     assert (
-        client.delete(path + f"?expected_version={current['version']}", headers=headers).status_code
+        client.request(
+            "DELETE",
+            path + f"?expected_version={current['version']}",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
         == 200
     )
     assert client.get("/api/v1/orders", headers=headers).json()["total"] == 0
@@ -252,25 +302,46 @@ def test_edit_delete_keep_operator_and_organization_boundaries(client, db, heade
         "/api/v1/orders", headers=headers, json=order_payload(customer["id"])
     ).json()
     assert client.patch(path, headers=headers, json=update_payload(own_format)).status_code == 404
-    assert client.delete(path + "?expected_version=1", headers=headers).status_code == 404
+    assert (
+        client.request(
+            "DELETE",
+            path + "?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 404
+    )
     db.get(Membership, (ORG, USER)).role = "administrator"
     db.commit()
     other = client.get(path, headers=headers).json()
     assert client.patch(path, headers=headers, json=update_payload(other)).status_code == 200
-    assert client.delete(path + "?expected_version=2", headers=headers).status_code == 200
+    assert (
+        client.request(
+            "DELETE",
+            path + "?expected_version=2",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 200
+    )
     foreign = Customer(organization_id=OTHER_ORG, name="Ajeno")
     db.add(foreign)
     db.commit()
     assert (
-        client.delete(
-            f"/api/v1/customers/{foreign.id}?expected_version=1", headers=headers
+        client.request(
+            "DELETE",
+            f"/api/v1/customers/{foreign.id}?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 404
     )
     assert (
-        client.delete(
+        client.request(
+            "DELETE",
             f"/api/v1/customers/{customer['id']}?expected_version=1",
             headers={"X-Organization-ID": str(ORG)},
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 401
     )

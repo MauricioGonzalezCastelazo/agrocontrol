@@ -1,5 +1,7 @@
 # 05 · Modelo de base de datos
 
+**Fase 2 local vigente:** el arranque normal utiliza FastAPI + SQLite y documentos persistentes. IndexedDB se conserva sin migración histórica. El modo privado PostgreSQL continúa disponible. [Arquitectura, integridad y límites actuales](22_sqlite_local.md).
+
 **Actualización de remisiones y cobros:** `0007_remissions_payments` añade las tablas de cobros, aplicaciones y asignaciones a pedidos. La migración vigente `0008_reusable_remissions` limita la unicidad por organización/producto/remisión a pedidos vigentes (`deleted_at IS NULL`), permitiendo reutilizar números eliminados sin alterar el historial. El pagado se deriva del historial vigente. [Modelo y restricciones actuales](20_remissions_payments.md).
 
 La revisión inicial es `0001_initial`. Ningún esquema depende de nombres de clientes como llave. Timestamps con zona horaria, generados por servidor; UUID portables. Versiones comienzan en 1; los clientes se editan con control optimista de versión.

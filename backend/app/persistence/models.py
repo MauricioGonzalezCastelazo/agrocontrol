@@ -11,7 +11,6 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -20,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.persistence.base import Base, ExactMoney, Record
+from app.persistence.base import Base, ExactInput, ExactMoney, Record
 
 
 class Organization(Record, Base):
@@ -108,8 +107,8 @@ class CarrotDetails(Base):
     )
     order_id: Mapped[UUID] = mapped_column(primary_key=True)
     organization_id: Mapped[UUID]
-    hectares: Mapped[Decimal] = mapped_column(Numeric(14, 4))
-    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    hectares: Mapped[Decimal] = mapped_column(ExactInput(14))
+    unit_price: Mapped[Decimal] = mapped_column(ExactInput(18))
     price_unit: Mapped[str | None] = mapped_column(String(80))
 
 
@@ -134,10 +133,10 @@ class PotatoDetails(Base):
     )
     order_id: Mapped[UUID] = mapped_column(primary_key=True)
     organization_id: Mapped[UUID]
-    gross_weight: Mapped[Decimal] = mapped_column(Numeric(14, 4))
-    tare_weight: Mapped[Decimal] = mapped_column(Numeric(14, 4))
-    additional_shrinkage: Mapped[Decimal] = mapped_column(Numeric(14, 4))
-    shrinkage_override: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    gross_weight: Mapped[Decimal] = mapped_column(ExactInput(14))
+    tare_weight: Mapped[Decimal] = mapped_column(ExactInput(14))
+    additional_shrinkage: Mapped[Decimal] = mapped_column(ExactInput(14))
+    shrinkage_override: Mapped[Decimal | None] = mapped_column(ExactInput(14))
 
 
 class PotatoGradeLine(Base):
@@ -153,8 +152,8 @@ class PotatoGradeLine(Base):
     order_id: Mapped[UUID] = mapped_column(primary_key=True)
     grade_code: Mapped[str] = mapped_column(String(3), primary_key=True)
     organization_id: Mapped[UUID]
-    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 4))
-    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    quantity: Mapped[Decimal] = mapped_column(ExactInput(14))
+    unit_price: Mapped[Decimal] = mapped_column(ExactInput(18))
 
 
 class AuditEvent(Base):
@@ -164,8 +163,29 @@ class AuditEvent(Base):
     actor_id: Mapped[UUID]
     action: Mapped[str] = mapped_column(String(80))
     record_id: Mapped[UUID]
-    # No free-text payloads, credentials, descriptions, or tokens in audit records.
+    # v1 historical events keep unknown fields NULL. v2 is appended atomically.
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    operation_id: Mapped[UUID | None]
+    occurred_at_utc: Mapped[str | None] = mapped_column(String(32))
+    reason: Mapped[str | None] = mapped_column(Text)
+    values_before: Mapped[str | None] = mapped_column(Text)
+    values_after: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OperationReceipt(Base):
+    __tablename__ = "operation_receipts"
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    actor_id: Mapped[UUID]
+    action: Mapped[str] = mapped_column(String(100))
+    record_id: Mapped[UUID]
+    request_hash: Mapped[str] = mapped_column(String(64))
+    response_json: Mapped[str] = mapped_column(Text)
+    status_code: Mapped[int] = mapped_column(Integer)
+    outcome: Mapped[str] = mapped_column(String(16))
+    created_at_utc: Mapped[str] = mapped_column(String(32))
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
 
 class Attachment(Base):

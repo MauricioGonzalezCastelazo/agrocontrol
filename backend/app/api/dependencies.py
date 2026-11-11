@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -33,11 +33,17 @@ class Principal:
 
 
 def current_principal(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     organization_id: Annotated[UUID, Header(alias="X-Organization-ID")],
     provider: Annotated[IdentityProvider, Depends(get_identity_provider)],
     db: Annotated[Session, Depends(get_db)],
 ) -> Principal:
+    runtime = getattr(request.app.state, "local_runtime", None)
+    if runtime is not None:
+        if organization_id != runtime.principal.organization_id:
+            raise HTTPException(403, "Organización local no autorizada")
+        return runtime.principal
     if credentials is None:
         raise HTTPException(401, "Sesión requerida", headers={"WWW-Authenticate": "Bearer"})
     try:

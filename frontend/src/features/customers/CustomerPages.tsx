@@ -12,6 +12,7 @@ import { QueryState } from '../../components/QueryState'
 import { DeleteRecordButton } from '../../components/DeleteRecordButton'
 import { useBase } from '../../app/useBase'
 import { useAuth } from '../auth/AuthProvider'
+import { ApiError } from '../../lib/api-error'
 import { request, type Customer, type Page } from '../../lib/business-api'
 import { localWorkspace } from '../../lib/env'
 
@@ -174,6 +175,7 @@ export function CustomerFormPage({ editing = false }: { editing?: boolean }) {
     cache = useQueryClient()
   const { principal } = useAuth()
   const [recordId] = useState(() => crypto.randomUUID())
+  const [attempt, setAttempt] = useState<string | null>(null)
   const query = useQuery({
     queryKey: ['customer', principal?.organization_id, id],
     queryFn: () => request<Customer>(`/customers/${id}`),
@@ -187,16 +189,25 @@ export function CustomerFormPage({ editing = false }: { editing?: boolean }) {
       : undefined,
   })
   const save = useMutation({
-    mutationFn: (values: Values) =>
-      request<Customer>(editing ? `/customers/${id}` : '/customers', {
-        method: editing ? 'PATCH' : 'POST',
-        body: JSON.stringify({
+    mutationFn: (values: Values) => {
+      const original =
+        attempt ||
+        JSON.stringify({
           ...values,
           notes: values.notes || null,
           ...(editing ? { expected_version: query.data?.version } : { id: recordId }),
-        }),
-      }),
+        })
+      setAttempt(original)
+      return request<Customer>(editing ? `/customers/${id}` : '/customers', {
+        method: editing ? 'PATCH' : 'POST',
+        body: original,
+      })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.outcome === 'rejected') setAttempt(null)
+    },
     onSuccess: async (customer) => {
+      setAttempt(null)
       cache.setQueryData(['customer', principal?.organization_id, customer.id], customer)
       await Promise.all([
         cache.invalidateQueries({ queryKey: ['customers'] }),
@@ -256,7 +267,7 @@ export function CustomerFormPage({ editing = false }: { editing?: boolean }) {
           </h2>
           <Badge>{localWorkspace ? 'Directorio local' : 'Directorio privado'}</Badge>
         </div>
-        <fieldset disabled={locked}>
+        <fieldset disabled={locked || Boolean(attempt)}>
           <div className="field">
             <label htmlFor="customer-name">
               Nombre del cliente <span aria-hidden="true">*</span>
@@ -303,7 +314,7 @@ export function CustomerFormPage({ editing = false }: { editing?: boolean }) {
             Volver al directorio
           </Link>
           <button className="button button-primary" type="submit" disabled={preview || locked}>
-            {save.isPending ? 'Guardando…' : 'Guardar cliente'}
+            {save.isPending ? 'Guardando…' : attempt ? 'Reintentar guardado' : 'Guardar cliente'}
           </button>
         </div>
       </form>

@@ -2,7 +2,8 @@ import { ShieldCheck, MonitorSmartphone, LogOut } from 'lucide-react'
 import { PageHeader, Badge } from '../../components/ui'
 import { useAuth } from '../auth/AuthProvider'
 import { useBase } from '../../app/useBase'
-import { localWorkspace } from '../../lib/env'
+import { localWorkspace, sqliteWorkspace } from '../../lib/env'
+import { LocalDiagnostics } from '../../components/LocalDiagnostics'
 
 export function SettingsPage() {
   const { principal, signOut } = useAuth()
@@ -14,6 +15,7 @@ export function SettingsPage() {
         title="Configuración"
         description="La información esencial de tu cuenta y la aplicación."
       />
+      {sqliteWorkspace && <LocalDiagnostics />}
       <section className="panel settings-panel">
         <div className="panel-heading">
           <h2>
@@ -41,7 +43,9 @@ export function SettingsPage() {
             <dt>Organización</dt>
             <dd className="identifier">
               {localWorkspace
-                ? 'Espacio de este navegador'
+                ? sqliteWorkspace
+                  ? 'Espacio de este equipo'
+                  : 'Espacio de este navegador'
                 : principal?.organization_id || 'Sin organización conectada'}
             </dd>
           </div>
@@ -49,7 +53,9 @@ export function SettingsPage() {
             <dt>{localWorkspace ? 'Almacenamiento' : 'Acceso privado'}</dt>
             <dd>
               {localWorkspace
-                ? 'Clientes, pedidos y archivos en este navegador'
+                ? sqliteWorkspace
+                  ? 'SQLite y documentos en este equipo · respaldo externo pendiente'
+                  : 'Clientes, pedidos y archivos en este navegador'
                 : 'Administrado por tu empresa'}
             </dd>
           </div>
@@ -75,7 +81,11 @@ export function SettingsPage() {
         </p>
         <p className="field-hint">
           {localWorkspace ? (
-            'El guardado local funciona sin Supabase. Abre siempre la misma dirección y el mismo perfil del navegador. Borrar sus datos elimina los registros y archivos locales. La conexión con la nube y su migración quedan pendientes.'
+            sqliteWorkspace ? (
+              'El guardado local utiliza SQLite y una carpeta de documentos del sistema. Funciona sin internet mientras la API local esté disponible. La información anterior de IndexedDB se conserva y aún no se ha migrado. El respaldo externo está pendiente.'
+            ) : (
+              'El guardado local funciona sin Supabase. Abre siempre la misma dirección y el mismo perfil del navegador. Borrar sus datos elimina los registros y archivos locales. La conexión con la nube y su migración quedan pendientes.'
+            )
           ) : (
             <>
               Los envíos pendientes se conservan en este navegador para la misma cuenta, incluso al

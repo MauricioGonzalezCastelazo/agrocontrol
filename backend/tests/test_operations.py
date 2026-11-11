@@ -80,7 +80,7 @@ def test_customer_create_search_edit_and_conflict(client, db, headers):
         client.patch(
             f"/api/v1/customers/{customer['id']}", headers=headers, json=change
         ).status_code
-        == 409
+        == 200
     )
     assert client.post("/api/v1/customers", headers=headers, json=payload).json()["version"] == 2
     assert db.scalar(select(func.count()).select_from(Customer)) == 1

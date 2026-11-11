@@ -8,6 +8,7 @@ import { App } from '../app/App'
 vi.mock('../lib/env', () => ({
   authConfigured: false,
   localWorkspace: false,
+  sqliteWorkspace: false,
   env: {
     apiUrl: 'http://localhost:8000/api/v1',
     preview: true,

@@ -4,7 +4,7 @@
 
 Los pedidos pueden eliminarse cuando no tienen abonos vigentes, aunque conserven cobros anulados en su historial. Cobros separa **Vigentes** y **Anulados** y distingue anular el cobro completo de quitar su abono conservando el dinero a favor. [Uso de estas acciones](docs/21_clear_payments.md).
 
-Plataforma para operaciones agrícolas. **Incremento actual: clientes, zanahoria por hectárea y papa por clasificación/pesaje, en MXN y con adjuntos.** Alta, edición y eliminación en el espacio local sin Supabase o mediante API privada. Incluye borradores offline durante sesión verificada vigente, reintento al recuperar conexión y comparación de conflictos. [Entrega de papa y límites](docs/17_potato_orders.md).
+Plataforma para operaciones agrícolas. **Incremento actual: clientes, zanahoria por hectárea y papa por clasificación/pesaje, en MXN y con adjuntos.** Alta, edición y eliminación en SQLite local sin Supabase o mediante API privada. Incluye borradores offline durante sesión verificada vigente, reintento al recuperar conexión y comparación de conflictos. [Entrega de papa y límites](docs/17_potato_orders.md).
 
 La interfaz usa React, TypeScript, Vite y Tailwind; la API FastAPI/Pydantic, SQLAlchemy/Alembic y PostgreSQL. Identidad mediante Supabase Auth con autorización independiente basada en membresías. No hay registro público, credenciales de demostración ni datos personales de ejemplo.
 
@@ -15,24 +15,32 @@ La interfaz usa React, TypeScript, Vite y Tailwind; la API FastAPI/Pydantic, SQL
 - Docker Desktop con motor Linux activo y Compose v2 para el entorno completo.
 - Un proyecto Supabase **de pruebas** configurado para firma JWT asimétrica si se desea validar login real. La base visual se puede revisar sin él.
 
-## Usar clientes y pedidos ahora, sin Supabase
+## Usar clientes y pedidos localmente con SQLite
 
-Desde `D:\agrocontrol` en PowerShell:
+El modo local ahora utiliza **React → FastAPI local → SQLite**, con documentos en una carpeta persistente del equipo. No necesita Supabase ni PostgreSQL. Los registros anteriores de IndexedDB se conservan y todavía no se migran. [Arquitectura, seguridad, rutas, migraciones y límites](docs/22_sqlite_local.md).
+
+[Informe de verificación de la etapa B: archivos, pruebas, resultados y limitaciones](docs/23_sqlite_stage_b_report.md).
+
+La etapa B de la fase 4 agrega auditoría versionada, motivos de eliminación, comprobantes durables, diagnóstico y conciliación de documentos. Las actualizaciones de una base existente requieren comprobar integridad y conservar una copia local verificada antes de cambiar el esquema. [Uso, migraciones, pruebas y límites de esta etapa](docs/24_phase4_integrity_report.md).
+
+Instalar las dependencias una vez desde la raíz:
 
 ```powershell
+python -m venv .venv
+.venv/Scripts/python -m pip install -c backend/requirements.lock -e 'backend[dev]'
+cd frontend
+npm ci
+cd ..
 python main.py
 ```
 
-Abrir siempre [http://127.0.0.1:5174/](http://127.0.0.1:5174/). Si falta instalar dependencias, ejecutar una vez `npm ci` desde `frontend`. No hace falta arrancar la API, Docker o PostgreSQL para este modo.
+En macOS usar `.venv/bin/python`. El lanzador inicia la API en `127.0.0.1:8000` y React en `127.0.0.1:5174`, y abre un enlace de autorización temporal en el navegador. Detener primero el arranque anterior si ocupa esos puertos. Ctrl+C cierra los procesos iniciados por el lanzador.
 
-1. Entrar en **Clientes → Nuevo cliente**, capturar el nombre y guardar.
-2. Entrar en **Pedidos → Nuevo pedido**, seleccionar cliente, producto, remisión y fecha. Zanahoria: hectáreas y precio por hectárea. Papa: cantidad/precio de las clasificaciones utilizadas, BRUTO, TARA y MERMA ADICIONAL. El total se calcula automáticamente en MXN.
-3. Agregar descripción y archivos si se desea y guardar el pedido. Volver a abrirlo o recargar para consultar lo guardado y descargar los adjuntos.
-4. Entrar en **Cobros → Registrar cobro**, seleccionar cliente, monto, fecha y descripción. Aplicar a pedidos o conservar como anticipo. Desde un cobro se puede aplicar su saldo disponible más adelante.
+Los registros nuevos se guardan en `%LOCALAPPDATA%/AgroControl/agrocontrol.sqlite3` (Windows) o `~/Library/Application Support/AgroControl/agrocontrol.sqlite3` (macOS); sus archivos están en `attachments/` junto a la base. Se aplican migraciones Alembic al iniciar. No borrar la base, sus journals ni documentos.
 
-La franja **«Modo local · Guardado habilitado»** confirma este modo. Clientes, pedidos y archivos se conservan en IndexedDB del navegador, incluso tras recargar o cerrar la pestaña. Usar el mismo perfil, dirección y puerto: `localhost` y `127.0.0.1` tienen almacenes diferentes. Borrar los datos del navegador elimina estos registros. Este modo no tiene cuentas individuales, copia en servidor ni sincronización con otros equipos; su migración a la nube queda pendiente.
+Clientes, pedidos, remisiones, cobros y anticipos conservan sus formularios. La franja confirma **guardado local** y **respaldo externo pendiente**. Sin internet se puede trabajar mientras la API local esté disponible. No hay sincronización entre equipos ni respaldo externo en esta fase.
 
-`main.py` activa `VITE_ENABLE_LOCAL_WORKSPACE=true` para su servidor de desarrollo. También se puede poner esa variable en `frontend/.env` al usar Vite directamente. Solo funciona en desarrollo, en loopback y sin configuración completa de Supabase; el build de producción siempre conserva el acceso privado. Los enlaces antiguos `/vista-previa/...` abren la pantalla funcional correspondiente cuando el modo local está activo. La API privada no recibe identidades ni peticiones de este espacio local.
+Conservar el mismo navegador, perfil y dirección `http://127.0.0.1:5174/` para detectar IndexedDB anterior. Si se encuentra información, se muestra **Migración pendiente**. No se mezclan registros ni se reenvían borradores históricos. El traslado se realizará en la fase 3.
 
 ## Revisar la base visual sin credenciales
 
@@ -124,6 +132,7 @@ npm run test:e2e
 npm run test:production
 npm run test:online
 npm run test:local
+npm run test:sqlite
 npm run format:check
 cd ..
 docker compose --env-file .env.example config --quiet
@@ -158,7 +167,7 @@ Clientes: en el directorio aparecen **Editar** y **Eliminar cliente** para admin
 
 Toda eliminación pide confirmación. Se usa eliminación lógica: los clientes eliminados dejan de aparecer en el directorio y selector, pero sus pedidos conservan el nombre y se pueden consultar. Los pedidos eliminados desaparecen de listados y sus archivos no se pueden descargar. Los registros y archivos físicos se conservan para trazabilidad; no hay purga definitiva ni restauración desde la interfaz. Los clientes inactivos o eliminados no aceptan pedidos nuevos, pero pueden permanecer en sus pedidos históricos al editar otros campos.
 
-Las ediciones y eliminaciones comprueban versión. Un conflicto de pedido permite comparar capturas y elegir explícitamente servidor o cambios locales. No hay fusión automática. Una respuesta perdida se reintenta sin duplicar cambios/archivos; un pedido eliminado no se recrea desde la cola. Al eliminarlo se libera su remisión para reutilizarla en el mismo producto, conservando las referencias de cobros del pedido anterior. Migración vigente: `0008_reusable_remissions`; aplicar `alembic upgrade head` desde `backend`. Conserva pedidos históricos, MERMA manual y cobros; cambia la unicidad de remisión a pedidos vigentes. El espacio local migra automáticamente a versión 3 al recargar y conserva sus datos sin reiniciarse. [Cobros y anticipos](docs/20_remissions_payments.md).
+Las ediciones y eliminaciones comprueban versión. Un conflicto de pedido permite comparar capturas y elegir explícitamente servidor o cambios locales. No hay fusión automática. Una respuesta perdida se reintenta sin duplicar cambios/archivos; un pedido eliminado no se recrea desde la cola. Al eliminarlo se libera su remisión para reutilizarla en el mismo producto, conservando las referencias de cobros del pedido anterior. Migración vigente: `0008_reusable_remissions`; aplicar `alembic upgrade head` desde `backend`. Conserva pedidos históricos, MERMA manual y cobros; cambia la unicidad de remisión a pedidos vigentes. El motor histórico IndexedDB conserva su versión 3; el nuevo modo SQLite no lo actualiza ni importa automáticamente sus registros. [Fase 2 local](docs/22_sqlite_local.md). [Cobros y anticipos](docs/20_remissions_payments.md).
 
 Papa: 1RA/2DA/3RA/4TA, PESO = BRUTO − TARA, **PESO TOTAL = PESO − MERMA ADICIONAL − CANTIDAD TOTAL** y PESO UNITARIO NETO = PESO TOTAL / CANTIDAD TOTAL. CANTIDAD TOTAL suma las clasificaciones. MERMA se llena con esa suma, pero permite borrar y escribir otro valor; al modificarla permanece manual hasta elegir Usar cantidad total. MERMA manual se guarda y no interviene en PESO TOTAL. CANTIDAD TOTAL más MERMA ADICIONAL no pueden superar PESO. Cada peso neto = cantidad × peso unitario; importe provisional = peso neto × precio. No se asume kg. Confirmaciones comerciales restantes en [preguntas abiertas](docs/11_open_questions.md).
 
@@ -166,4 +175,4 @@ Todos los campos numéricos de ambos formularios separan miles con comas mientra
 
 Las fórmulas y límites de papa proceden del mismo JSON interpretado por TypeScript y Python con aritmética racional exacta; cuatro decimales de entrada y ocho de salida HALF_UP, sin redondeo intermedio. Docker web se construye desde la raíz para incluir ese contrato compartido.
 
-Pendiente: Supabase externo, reapertura privada en frío offline, manifiesto PWA, respaldo/exportación y pruebas físicas de teléfonos. No se desplegó a producción.
+Pendiente: migración histórica de IndexedDB (fase 3), Supabase externo, reapertura privada en frío offline, manifiesto PWA, respaldo/exportación y pruebas físicas de teléfonos. No se desplegó a producción.

@@ -71,8 +71,11 @@ def test_remission_unique_per_product_across_customers_and_active_orders(client,
     )
     assert conflict.status_code == 409, conflict.text
     assert (
-        client.delete(
-            f"/api/v1/orders/{carrot['id']}?expected_version=1", headers=headers
+        client.request(
+            "DELETE",
+            f"/api/v1/orders/{carrot['id']}?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 200
     )
@@ -99,7 +102,15 @@ def test_deleted_remission_can_be_reused_when_editing(client, headers, db, produ
     assert conflict.status_code == 409
     assert "pedido vigente" in conflict.json()["detail"]
     deleted_path = f"/api/v1/orders/{former['id']}?expected_version=1"
-    assert client.delete(deleted_path, headers=headers).status_code == 200
+    assert (
+        client.request(
+            "DELETE",
+            deleted_path,
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 200
+    )
     changed = client.patch(path, headers=headers, json=edit)
     assert changed.status_code == 200, changed.text
     assert changed.json()["remission_number"] == 1
@@ -107,7 +118,15 @@ def test_deleted_remission_can_be_reused_when_editing(client, headers, db, produ
     duplicate = order_payload(customer["id"], remission_number=1, **fields)
     assert client.post("/api/v1/orders", headers=headers, json=duplicate).status_code == 409
     # Retrying the old deletion must not release the replacement's reservation.
-    assert client.delete(deleted_path, headers=headers).status_code == 200
+    assert (
+        client.request(
+            "DELETE",
+            deleted_path,
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 200
+    )
     assert client.post("/api/v1/orders", headers=headers, json=duplicate).status_code == 409
     make_order(client, headers, customer["id"], remission_number=2, **fields)
 
@@ -204,8 +223,11 @@ def test_undo_and_void_preserve_history_and_protect_orders(client, headers, db):
             == 409
         )
     assert (
-        client.delete(
-            endpoint + f"?expected_version={current['version']}", headers=headers
+        client.request(
+            "DELETE",
+            endpoint + f"?expected_version={current['version']}",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 409
     )
@@ -215,7 +237,15 @@ def test_undo_and_void_preserve_history_and_protect_orders(client, headers, db):
     assert result.status_code == 200, result.text
     assert result.json()["available_credit"] == "120.00000000"
     assert read_order(client, headers, order)["total_paid"] == "0.00000000"
-    assert client.delete(endpoint + "?expected_version=3", headers=headers).status_code == 200
+    assert (
+        client.request(
+            "DELETE",
+            endpoint + "?expected_version=3",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 200
+    )
     assert client.post(path + "/void", headers=headers, json=undo).status_code == 409
     void = undo | {"expected_version": 2, "reason": "Transferencia revertida"}
     result = client.post(path + "/void", headers=headers, json=void)
@@ -417,7 +447,12 @@ def test_order_can_be_deleted_after_removing_all_active_payments(client, headers
     )
     endpoint = f"/api/v1/orders/{order['id']}"
     current = read_order(client, headers, order)
-    blocked = client.delete(endpoint + f"?expected_version={current['version']}", headers=headers)
+    blocked = client.request(
+        "DELETE",
+        endpoint + f"?expected_version={current['version']}",
+        headers=headers,
+        json={"reason": "Correccion sintetica autorizada"},
+    )
     assert blocked.status_code == 409
     assert "vigentes" in blocked.json()["detail"]
     path = f"/api/v1/payments/{payment['id']}"
@@ -428,8 +463,21 @@ def test_order_can_be_deleted_after_removing_all_active_payments(client, headers
     assert removed.status_code == 200, removed.text
     current = read_order(client, headers, order)
     assert current["total_paid"] == "0.00000000"
-    assert client.delete(endpoint + "?expected_version=1", headers=headers).status_code == 409
-    deleted = client.delete(endpoint + f"?expected_version={current['version']}", headers=headers)
+    assert (
+        client.request(
+            "DELETE",
+            endpoint + "?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
+        ).status_code
+        == 409
+    )
+    deleted = client.request(
+        "DELETE",
+        endpoint + f"?expected_version={current['version']}",
+        headers=headers,
+        json={"reason": "Correccion sintetica autorizada"},
+    )
     assert deleted.status_code == 200, deleted.text
     assert client.get(endpoint, headers=headers).status_code == 410
     assert db.get(Order, UUID(order["id"])).deleted_at is not None
@@ -476,8 +524,11 @@ def test_voiding_one_of_two_payments_does_not_unlock_order_deletion(client, head
     assert current["total_paid"] == "20.00000000"
     endpoint = f"/api/v1/orders/{order['id']}"
     assert (
-        client.delete(
-            endpoint + f"?expected_version={current['version']}", headers=headers
+        client.request(
+            "DELETE",
+            endpoint + f"?expected_version={current['version']}",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 409
     )
@@ -488,8 +539,11 @@ def test_voiding_one_of_two_payments_does_not_unlock_order_deletion(client, head
     )
     current = read_order(client, headers, order)
     assert (
-        client.delete(
-            endpoint + f"?expected_version={current['version']}", headers=headers
+        client.request(
+            "DELETE",
+            endpoint + f"?expected_version={current['version']}",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 200
     )

@@ -20,7 +20,7 @@ import { QueryState } from '../../components/QueryState'
 import { DeleteRecordButton } from '../../components/DeleteRecordButton'
 import { useBase } from '../../app/useBase'
 import { useAuth } from '../auth/AuthProvider'
-import { localWorkspace } from '../../lib/env'
+import { localWorkspace, sqliteWorkspace } from '../../lib/env'
 import { fileTypeLabel } from '../../lib/attachment-policy'
 import {
   request,
@@ -177,7 +177,9 @@ export function OrdersPage() {
                       {order.attachment_status === 'pending'
                         ? 'Archivos pendientes'
                         : localWorkspace
-                          ? 'Guardado en este navegador'
+                          ? sqliteWorkspace
+                            ? 'Guardado local'
+                            : 'Guardado en este navegador'
                           : 'Guardado en servidor'}
                     </Badge>
                   </div>
@@ -323,6 +325,16 @@ export function OrderFormPage({
       initialDraft && initialDraft.attempted !== false ? initialDraft : null,
     ),
     [recordId] = useState(() => initialDraft?.orderId || crypto.randomUUID())
+  const [omittedFiles, setOmittedFiles] = useState<string[]>([])
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+  const missingOriginals = sqliteWorkspace
+    ? (source?.attachments || []).filter(
+        (manifest) =>
+          !(initialOrder?.attachments || []).some((file) => file.id === manifest.id) &&
+          !files.some((file) => file.manifest.id === manifest.id) &&
+          !omittedFiles.includes(manifest.id),
+      )
+    : []
   const form = useForm<CarrotValues>({
     resolver: zodResolver(
       (product === 'carrot'
@@ -385,6 +397,10 @@ export function OrderFormPage({
   const save = useMutation({
     mutationFn: async (values: CarrotValues) => {
       if (!principal || preview) throw new Error('Se requiere una sesión autorizada.')
+      if (missingOriginals.length)
+        throw new Error(
+          'Recupera los archivos pendientes o retíralos explícitamente de la captura antes de guardar.',
+        )
       const pending =
         draft ||
         (await retainDraft(
@@ -488,6 +504,53 @@ export function OrderFormPage({
             Prueba la fecha, el cálculo y la selección de archivos. El guardado requiere una sesión
             autorizada.
           </p>
+        </div>
+      )}
+      {missingOriginals.length > 0 && (
+        <div className="notice" role="alert">
+          <p>
+            La captura se recuperó, pero estos documentos no terminaron de guardarse. Selecciona los
+            originales o retíralos de la captura:
+          </p>
+          {missingOriginals.map((manifest) => (
+            <div key={manifest.id}>
+              <label>
+                {manifest.filename}
+                <input
+                  type="file"
+                  aria-label={`Recuperar ${manifest.filename}`}
+                  onChange={async (event) => {
+                    const selected = event.target.files?.[0]
+                    if (!selected) return
+                    try {
+                      const [file] = await prepareFiles([selected])
+                      if (
+                        file.manifest.sha256 !== manifest.sha256 ||
+                        file.manifest.size_bytes !== manifest.size_bytes
+                      )
+                        throw new Error('Selecciona el archivo original; su contenido no coincide.')
+                      setFiles((previous) => [...previous, { ...file, manifest }])
+                      setRestoreError(null)
+                    } catch (cause) {
+                      setRestoreError(
+                        cause instanceof Error
+                          ? cause.message
+                          : 'No se pudo recuperar el documento.',
+                      )
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => setOmittedFiles((previous) => [...previous, manifest.id])}
+              >
+                Retirar {manifest.filename} de la captura
+              </button>
+            </div>
+          ))}
+          {restoreError && <p className="field-error">{restoreError}</p>}
         </div>
       )}
       <div className="order-grid">
@@ -650,7 +713,18 @@ export function OrderFormPage({
                 )}
                 <FilePicker
                   files={files}
-                  onChange={setFiles}
+                  onChange={(next) => {
+                    setOmittedFiles((previous) => [
+                      ...previous,
+                      ...files
+                        .filter(
+                          (file) =>
+                            !next.some((candidate) => candidate.manifest.id === file.manifest.id),
+                        )
+                        .map((file) => file.manifest.id),
+                    ])
+                    setFiles(next)
+                  }}
                   onBusy={setFilesBusy}
                   disabled={locked}
                   existing={kept}
@@ -886,7 +960,9 @@ export function OrderDetailPage() {
             <div className="notice" role="status">
               <p>
                 {localWorkspace
-                  ? 'Pedido guardado en este navegador.'
+                  ? sqliteWorkspace
+                    ? 'Pedido guardado localmente en SQLite. Respaldo externo pendiente.'
+                    : 'Pedido guardado en este navegador.'
                   : 'Pedido guardado en el servidor.'}
                 {order.attachment_status === 'pending'
                   ? ' Algunos archivos siguen pendientes de subir.'
@@ -901,7 +977,9 @@ export function OrderDetailPage() {
                 <Badge tone={order.attachment_status === 'complete' ? 'green' : 'amber'}>
                   {order.attachment_status === 'complete'
                     ? localWorkspace
-                      ? 'Guardado en este navegador'
+                      ? sqliteWorkspace
+                        ? 'Guardado local'
+                        : 'Guardado en este navegador'
                       : 'Guardado en servidor'
                     : 'Archivos pendientes'}
                 </Badge>
@@ -993,7 +1071,9 @@ export function OrderDetailPage() {
                         {groupNumber((attachment.size_bytes / 1024).toFixed(1))} KB ·{' '}
                         {attachment.status === 'ready'
                           ? localWorkspace
-                            ? 'Guardado en este navegador'
+                            ? sqliteWorkspace
+                              ? 'Guardado local'
+                              : 'Guardado en este navegador'
                             : 'Guardado en servidor'
                           : 'Pendiente de subir'}
                       </small>
@@ -1089,7 +1169,9 @@ export function OrderDetailPage() {
               </div>
               <p className="field-hint">
                 {localWorkspace
-                  ? 'Calculado y guardado en este navegador.'
+                  ? sqliteWorkspace
+                    ? 'Calculado y guardado en este equipo. Respaldo externo pendiente.'
+                    : 'Calculado y guardado en este navegador.'
                   : 'Calculado y verificado en el servidor.'}
               </p>
               {order.product_type === 'potato' && (

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 
 from app.api.business import Current, Database
@@ -13,6 +13,7 @@ from app.modules.payment_schemas import (
     PaymentResponse,
     VoidInput,
 )
+from app.modules.transactions import execute
 from app.persistence.models import Payment
 
 router = APIRouter(prefix="/api/v1", tags=["payments"])
@@ -57,8 +58,20 @@ def payments(
 
 
 @router.post("/payments", status_code=201, response_model=PaymentResponse)
-def create_payment(payload: PaymentInput, db: Database, principal: Current):
-    return service.payment_response(db, principal, service.create_payment(db, principal, payload))
+def create_payment(payload: PaymentInput, request: Request, db: Database, principal: Current):
+    return execute(
+        db,
+        principal,
+        request,
+        "payment.created",
+        payload.id,
+        payload.model_dump(mode="json"),
+        lambda: service.payment_response(
+            db, principal, service.create_payment(db, principal, payload)
+        ),
+        PaymentResponse,
+        201,
+    )
 
 
 @router.get("/payments/{payment_id}", response_model=PaymentResponse)
@@ -67,16 +80,37 @@ def payment(payment_id: UUID, db: Database, principal: Current):
 
 
 @router.post("/payments/{payment_id}/applications", status_code=201, response_model=PaymentResponse)
-def apply(payment_id: UUID, payload: ApplicationInput, db: Database, principal: Current):
-    return service.payment_response(
-        db, principal, service.apply_credit(db, principal, payment_id, payload)
+def apply(
+    payment_id: UUID, payload: ApplicationInput, request: Request, db: Database, principal: Current
+):
+    return execute(
+        db,
+        principal,
+        request,
+        "payment.applied",
+        payload.id,
+        payload.model_dump(mode="json") | {"payment_id": str(payment_id)},
+        lambda: service.payment_response(
+            db, principal, service.apply_credit(db, principal, payment_id, payload)
+        ),
+        PaymentResponse,
+        201,
     )
 
 
 @router.post("/payments/{payment_id}/void", response_model=PaymentResponse)
-def void(payment_id: UUID, payload: VoidInput, db: Database, principal: Current):
-    return service.payment_response(
-        db, principal, service.void_payment(db, principal, payment_id, payload)
+def void(payment_id: UUID, payload: VoidInput, request: Request, db: Database, principal: Current):
+    return execute(
+        db,
+        principal,
+        request,
+        "payment.voided",
+        payment_id,
+        payload.model_dump(mode="json"),
+        lambda: service.payment_response(
+            db, principal, service.void_payment(db, principal, payment_id, payload)
+        ),
+        PaymentResponse,
     )
 
 
@@ -84,8 +118,22 @@ def void(payment_id: UUID, payload: VoidInput, db: Database, principal: Current)
     "/payments/{payment_id}/applications/{application_id}/void", response_model=PaymentResponse
 )
 def undo(
-    payment_id: UUID, application_id: UUID, payload: VoidInput, db: Database, principal: Current
+    payment_id: UUID,
+    application_id: UUID,
+    payload: VoidInput,
+    request: Request,
+    db: Database,
+    principal: Current,
 ):
-    return service.payment_response(
-        db, principal, service.void_payment(db, principal, payment_id, payload, application_id)
+    return execute(
+        db,
+        principal,
+        request,
+        "payment.application_voided",
+        application_id,
+        payload.model_dump(mode="json") | {"payment_id": str(payment_id)},
+        lambda: service.payment_response(
+            db, principal, service.void_payment(db, principal, payment_id, payload, application_id)
+        ),
+        PaymentResponse,
     )

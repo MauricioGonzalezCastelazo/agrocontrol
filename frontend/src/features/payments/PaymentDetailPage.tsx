@@ -7,6 +7,7 @@ import { request } from '../../lib/business-api'
 import { money, dateLabel } from '../orders/domain'
 import { Exact, type Payment } from './domain'
 import { useInvalidatePayments, usePayment } from './queries'
+import { ApiError } from '../../lib/api-error'
 
 function VoidForm({
   payment,
@@ -20,20 +21,24 @@ function VoidForm({
   const [open, setOpen] = useState(false),
     [reason, setReason] = useState(''),
     invalidate = useInvalidatePayments()
+  const [attempt, setAttempt] = useState<{ expected_version: number; reason: string } | null>(null)
   const action = useMutation({
     mutationFn: async () => {
       if (!reason.trim()) throw new Error('Escribe el motivo para conservarlo en el historial.')
+      const original = attempt || { expected_version: payment.version, reason: reason.trim() }
+      setAttempt(original)
       return request<Payment>(
         `/payments/${payment.id}${applicationId ? `/applications/${applicationId}` : ''}/void`,
         {
           method: 'POST',
-          body: JSON.stringify({ expected_version: payment.version, reason: reason.trim() }),
+          body: JSON.stringify(original),
         },
       )
     },
     onSuccess: async () => {
       setOpen(false)
       setReason('')
+      setAttempt(null)
       await invalidate()
       onComplete(
         applicationId
@@ -41,7 +46,8 @@ function VoidForm({
           : 'Cobro anulado. Ya no cuenta en los saldos. Puedes eliminar los pedidos que hayan quedado sin otros abonos vigentes.',
       )
     },
-    onError: () => {
+    onError: (error) => {
+      if (error instanceof ApiError && error.outcome === 'rejected') setAttempt(null)
       void invalidate()
     },
   })
@@ -78,6 +84,7 @@ function VoidForm({
         value={reason}
         maxLength={1000}
         rows={2}
+        disabled={action.isPending || Boolean(attempt)}
         onChange={(event) => setReason(event.target.value)}
       />
       <p className="field-hint">

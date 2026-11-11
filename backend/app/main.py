@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.business import router as business
 from app.api.files import router as files
+from app.api.history import router as history
 from app.api.payments import router as payments
 from app.api.routes import api, health
 from app.core.config import get_settings
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "X-Organization-ID", "Idempotency-Key"],
+        expose_headers=["X-Operation-ID", "X-Operation-Outcome", "X-Operation-Replayed"],
     )
 
     @application.middleware("http")
@@ -33,7 +35,13 @@ def create_app() -> FastAPI:
     @application.exception_handler(SQLAlchemyError)
     async def database_error(request: Request, exc: SQLAlchemyError):
         return JSONResponse(
-            status_code=503, content={"detail": "Datos no disponibles temporalmente"}
+            status_code=503,
+            content={
+                "detail": "Datos no disponibles temporalmente. Si estabas guardando, "
+                "el resultado no está confirmado; reintenta con los mismos datos e identificador.",
+                "outcome": "uncertain",
+            },
+            headers={"X-Operation-Outcome": "uncertain"},
         )
 
     application.include_router(health)
@@ -41,6 +49,7 @@ def create_app() -> FastAPI:
     application.include_router(business)
     application.include_router(files)
     application.include_router(payments)
+    application.include_router(history)
     return application
 
 

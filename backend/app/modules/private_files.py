@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import Principal
 from app.core.config import get_settings
 from app.modules.operations import audit, order_by_id
+from app.modules.transactions import commit
 from app.persistence.models import Attachment, Order
 
 
@@ -27,10 +28,10 @@ def attachment_by_id(db: Session, principal: Principal, order_id: UUID, attachme
     return attachment
 
 
-def object_path(organization_id: UUID, order_id: UUID, attachment_id: UUID) -> Path:
+def object_path(organization_id: UUID, order_id: UUID, attachment_id: UUID, root=None) -> Path:
     # Only UUIDs construct paths; user filenames never touch the filesystem.
     return (
-        get_settings().private_files_path.resolve()
+        (root or get_settings().private_files_path).resolve()
         / str(organization_id)
         / str(order_id)
         / str(attachment_id)
@@ -73,7 +74,7 @@ def finish_upload(db: Session, principal: Principal, attachment: Attachment):
             .values(version=Order.version + 1, updated_at=func.now(), updated_by=principal.user_id)
         )
         audit(db, principal, "attachment.uploaded", attachment.id)
-    db.commit()
+    commit(db)
     db.refresh(attachment)
     if attachment.deleted_at is not None:
         raise HTTPException(410, "Este adjunto fue retirado del pedido")

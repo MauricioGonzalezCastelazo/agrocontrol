@@ -145,6 +145,11 @@ function PaymentForm({ payment, draft: source }: { payment?: Payment; draft?: Pa
       !locked &&
       (Boolean(payment?.voided_at) || (credit && new Exact(payment!.available_credit).lte(0)))
   const max = credit ? payment!.available_credit : amount
+  const balancesPending =
+    !locked &&
+    apply &&
+    Boolean(customerId) &&
+    (orders.isFetching || !orders.data || Boolean(orders.error))
   const effectiveLines = lines.map((line) => {
     if (credit || lines.length !== 1 || line.manual || !amountSchema.safeParse(max).success)
       return line
@@ -162,6 +167,7 @@ function PaymentForm({ payment, draft: source }: { payment?: Payment; draft?: Pa
   const save = useMutation({
     mutationFn: async () => {
       if (!principal || preview) throw new Error('Se requiere una sesión autorizada.')
+      if (balancesPending) throw new Error('Espera a que se carguen los saldos de los pedidos.')
       let pending = locked ? draft : null
       if (!pending) {
         const allocations = apply
@@ -268,7 +274,7 @@ function PaymentForm({ payment, draft: source }: { payment?: Payment; draft?: Pa
           onSubmit={(event) => {
             event.preventDefault()
             setError('')
-            if (!save.isPending) save.mutate()
+            if (!save.isPending && !balancesPending) save.mutate()
           }}
         >
           <fieldset disabled={preview || locked || save.isPending || unavailable}>
@@ -532,7 +538,7 @@ function PaymentForm({ payment, draft: source }: { payment?: Payment; draft?: Pa
           <div className="form-actions">
             <button
               className="button button-primary"
-              disabled={preview || save.isPending || unavailable}
+              disabled={preview || save.isPending || unavailable || balancesPending}
               type="submit"
             >
               {save.isPending

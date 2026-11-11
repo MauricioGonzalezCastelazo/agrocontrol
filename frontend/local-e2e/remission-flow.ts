@@ -7,6 +7,10 @@ export async function exerciseRemissionReuse(page: Page, product: 'carrot' | 'po
   await go(page, `/pedidos/${original.id}`)
   await page.getByRole('button', { name: 'Eliminar pedido', exact: true }).click()
   await page
+    .getByRole('dialog')
+    .getByLabel('Motivo de eliminación')
+    .fill('Correccion sintetica autorizada')
+  await page
     .getByRole('dialog', { name: '¿Eliminar este pedido?', exact: true })
     .getByRole('button', { name: 'Eliminar pedido', exact: true })
     .click()

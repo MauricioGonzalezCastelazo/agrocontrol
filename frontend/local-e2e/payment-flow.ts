@@ -203,6 +203,7 @@ export async function exercisePaymentRemoval(page: Page, mode: 'void' | 'unassig
   ).toBeVisible()
   await page.getByRole('button', { name: 'Eliminar pedido', exact: true }).click()
   dialog = page.getByRole('dialog', { name: '¿Eliminar este pedido?', exact: true })
+  await dialog.getByLabel('Motivo de eliminación').fill('Correccion sintetica autorizada')
   await dialog.getByRole('button', { name: 'Eliminar pedido', exact: true }).click()
   await expect(page).toHaveURL(/\/pedidos$/)
   await expect(page.locator(`a.order-row[href="${orderPath}"]`)).toHaveCount(0)

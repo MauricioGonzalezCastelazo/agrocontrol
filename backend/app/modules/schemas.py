@@ -30,6 +30,10 @@ class CustomerUpdate(Input):
     expected_version: int = Field(gt=0, strict=True)
 
 
+class DeleteReason(Input):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class CustomerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID

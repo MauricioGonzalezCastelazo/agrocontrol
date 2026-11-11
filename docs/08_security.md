@@ -1,5 +1,7 @@
 # 08 · Seguridad
 
+**Fase 2 local vigente:** el arranque normal utiliza FastAPI + SQLite y documentos persistentes. IndexedDB se conserva sin migración histórica. El modo privado PostgreSQL continúa disponible. [Arquitectura, integridad y límites actuales](22_sqlite_local.md).
+
 Actualización vigente: zanahoria y papa comparten autorización por organización/membresía. Responsable y modificador provienen de la sesión en backend. Extensiones nuevas limitadas por lista explícita; descarga autenticada forzada como binario (`attachment`, `nosniff`, `no-store`). Nombres independientes de rutas físicas, hash/tamaño verificados. No se ejecutan documentos ni se declara antivirus. Caché offline por usuario/organización/rol, solo durante sesión verificada hasta exp del token. Logout bloquea lectura y conserva pendientes. [Alcance offline](07_offline_sync.md).
 
 ## Base implementada

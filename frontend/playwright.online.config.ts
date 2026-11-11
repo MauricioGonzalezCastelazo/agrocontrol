@@ -9,6 +9,7 @@ const python = existsSync('../.venv/Scripts/python.exe')
     : 'python'
 export default defineConfig({
   testDir: './online-e2e',
+  outputDir: '../.local/online-e2e-results',
   timeout: 60_000,
   workers: 1,
   reporter: 'list',

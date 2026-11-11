@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useQueryClient } from '@tanstack/react-query'
-import { authConfigured, env, localWorkspace } from '../../lib/env'
+import { authConfigured, env, localWorkspace, sqliteWorkspace } from '../../lib/env'
+import { initializeLocal } from '../../lib/local-api'
 import { localPrincipal } from '../../lib/local-identity'
 import { getPrincipal, type Principal } from '../../lib/api'
 import { clearVerifiedScope, setVerifiedScope, verifiedScope } from '../../lib/session-scope'
@@ -33,11 +34,29 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [principal, setPrincipal] = useState<Principal | null>(
-    localWorkspace ? localPrincipal : null,
+    localWorkspace && !sqliteWorkspace ? localPrincipal : null,
   )
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(sqliteWorkspace)
   const [error, setError] = useState<string | null>(null)
   const cache = useQueryClient()
+  useEffect(() => {
+    if (!sqliteWorkspace) return
+    let disposed = false
+    void initializeLocal()
+      .then(({ principal }) => {
+        if (!disposed) setPrincipal(principal)
+      })
+      .catch((cause) => {
+        if (!disposed)
+          setError(cause instanceof Error ? cause.message : 'No se pudo abrir la base local.')
+      })
+      .finally(() => {
+        if (!disposed) setLoading(false)
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
   useEffect(() => {
     let disposed = false
     let unsubscribe: (() => void) | undefined

@@ -3,6 +3,7 @@ export const env = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
   supabaseKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
   organizationId: import.meta.env.VITE_ORGANIZATION_ID || '',
+  localApiUrl: import.meta.env.VITE_LOCAL_API_URL || 'http://127.0.0.1:8000/api/v1',
   preview: import.meta.env.DEV && import.meta.env.VITE_ENABLE_PREVIEW === 'true',
 }
 export const authConfigured = Boolean(env.supabaseUrl && env.supabaseKey && env.organizationId)
@@ -14,3 +15,6 @@ export const localWorkspace =
   import.meta.env.VITE_ENABLE_LOCAL_WORKSPACE === 'true' &&
   ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname) &&
   !authConfigured
+
+// The former engine remains available only to its isolated regression tests.
+export const sqliteWorkspace = localWorkspace && import.meta.env.VITE_LEGACY_LOCAL_TESTS !== 'true'

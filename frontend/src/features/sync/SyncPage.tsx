@@ -7,7 +7,7 @@ import { PageHeader, Badge } from '../../components/ui'
 import { QueryState } from '../../components/QueryState'
 import { useBase } from '../../app/useBase'
 import { useAuth } from '../auth/AuthProvider'
-import { localWorkspace } from '../../lib/env'
+import { localWorkspace, sqliteWorkspace } from '../../lib/env'
 import { listPending, synchronizePending } from '../orders/pending-files'
 import { ConflictResolution } from '../orders/ConflictResolution'
 import { PendingPayments } from '../payments/PendingPayments'
@@ -37,7 +37,13 @@ export function SyncPage() {
   return (
     <>
       <PageHeader
-        eyebrow={localWorkspace ? 'GUARDADO EN ESTE NAVEGADOR' : 'DEL DISPOSITIVO AL EQUIPO'}
+        eyebrow={
+          localWorkspace
+            ? sqliteWorkspace
+              ? 'GUARDADO EN ESTE EQUIPO'
+              : 'GUARDADO EN ESTE NAVEGADOR'
+            : 'DEL DISPOSITIVO AL EQUIPO'
+        }
         title="Siempre a la vista."
         description={
           localWorkspace
@@ -56,7 +62,11 @@ export function SyncPage() {
       <div className="notice">
         <p>
           {localWorkspace ? (
-            'Los clientes, pedidos y adjuntos se guardan en este navegador. No hay conexión con la nube; no se compartirán con otros dispositivos automáticamente.'
+            sqliteWorkspace ? (
+              'Los clientes, pedidos y capturas pendientes se guardan en SQLite; los documentos permanecen en este equipo. El respaldo externo está pendiente.'
+            ) : (
+              'Los clientes, pedidos y adjuntos se guardan en este navegador. No hay conexión con la nube; no se compartirán con otros dispositivos automáticamente.'
+            )
           ) : (
             <>
               Puedes capturar sin conexión con una sesión aún vigente y clientes ya consultados en

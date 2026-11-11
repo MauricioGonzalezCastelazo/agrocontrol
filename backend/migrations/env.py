@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, pool
 from app.core.config import get_settings
 from app.persistence import models  # noqa: F401
 from app.persistence.base import Base
+from app.persistence.preservation import before_postgresql_upgrade
 
 target_metadata = Base.metadata
 
@@ -20,6 +21,8 @@ if context.is_offline_mode():
 else:
     engine = create_engine(get_settings().database_url, poolclass=pool.NullPool)
     with engine.connect() as connection:
+        before_postgresql_upgrade(connection, context.config)
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
             context.run_migrations()
+        connection.commit()

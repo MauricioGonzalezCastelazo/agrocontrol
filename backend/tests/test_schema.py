@@ -8,7 +8,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, delete, inspect, update
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,10 +19,6 @@ from app.persistence.models import (
     Membership,
     Order,
     Organization,
-    Payment,
-    PaymentAllocation,
-    PaymentApplication,
-    PotatoDetails,
 )
 from tests.conftest import ORG, OTHER_ORG, USER
 
@@ -99,8 +95,11 @@ def exercise_postgresql_remission_migration(engine, client, headers, config, db)
     original = client.post("/api/v1/orders", headers=headers, json=payload)
     assert original.status_code == 201, original.text
     assert (
-        client.delete(
-            f"/api/v1/orders/{payload['id']}?expected_version=1", headers=headers
+        client.request(
+            "DELETE",
+            f"/api/v1/orders/{payload['id']}?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 200
     )
@@ -145,8 +144,11 @@ def exercise_postgresql_remission_migration(engine, client, headers, config, db)
     )
     assert current is not None
     assert (
-        client.delete(
-            f"/api/v1/orders/{current.id}?expected_version=1", headers=headers
+        client.request(
+            "DELETE",
+            f"/api/v1/orders/{current.id}?expected_version=1",
+            headers=headers,
+            json={"reason": "Correccion sintetica autorizada"},
         ).status_code
         == 200
     )
@@ -164,188 +166,91 @@ def exercise_postgresql_remission_migration(engine, client, headers, config, db)
 @pytest.mark.skipif(
     not os.getenv("TEST_DATABASE_URL"), reason="Requiere PostgreSQL dedicado de pruebas"
 )
-def test_postgresql_migration_roundtrip_and_constraints(monkeypatch, tmp_path):
+def test_postgresql_migrations_constraints_audit_and_concurrency(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+
+    from app.api.dependencies import get_identity_provider
     from app.core.config import get_settings
+    from app.main import create_app
+    from app.persistence.database import get_db
+    from tests.conftest import TestIdentityProvider
+    from tests.test_edit_delete import update_payload
+    from tests.test_operations import exercise_private_attachment, make_customer, order_payload
+    from tests.test_payments import exercise_postgresql_payment_concurrency
 
     url = os.environ["TEST_DATABASE_URL"]
     parsed = make_url(url)
     assert parsed.get_backend_name() == "postgresql" and parsed.database.endswith("_test")
     engine = create_engine(url)
-    assert not inspect(engine).get_table_names(), "La base de pruebas debe estar vacía"
+    assert not inspect(engine).get_table_names(), "Dedicated test database must initially be empty"
     monkeypatch.setenv("DATABASE_URL", url)
     get_settings.cache_clear()
+    monkeypatch.setattr(get_settings(), "private_files_path", tmp_path / "attachments")
     config = Config("alembic.ini")
     try:
         command.upgrade(config, "head")
         with engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
-        with Session(engine) as db:
-            db.add_all(
+        with Session(engine) as session:
+            session.add_all(
                 [
-                    Organization(id=ORG, name="Empresa A"),
-                    Organization(id=OTHER_ORG, name="Empresa B"),
+                    Organization(id=ORG, name="Synthetic A"),
+                    Organization(id=OTHER_ORG, name="Synthetic B"),
                 ]
             )
-            db.flush()
-            db.add(Membership(organization_id=ORG, user_id=USER, role="operator"))
-            db.commit()
-            test_order_cannot_reference_customer_from_another_organization(db)
-            test_schema_blocks_unsupported_products(db)
-            from fastapi.testclient import TestClient
+            session.flush()
+            session.add(Membership(organization_id=ORG, user_id=USER, role="administrator"))
+            session.commit()
+            test_order_cannot_reference_customer_from_another_organization(session)
+            test_schema_blocks_unsupported_products(session)
+        application = create_app()
 
-            from app.api.dependencies import get_identity_provider
-            from app.main import create_app
-            from app.persistence.database import get_db
-            from tests.conftest import TestIdentityProvider
-            from tests.test_operations import (
-                exercise_private_attachment,
-                make_customer,
-                order_payload,
+        def database():
+            with Session(engine) as session:
+                yield session
+
+        application.dependency_overrides[get_db] = database
+        application.dependency_overrides[get_identity_provider] = TestIdentityProvider
+        headers = {"Authorization": "Bearer test-identity-token", "X-Organization-ID": str(ORG)}
+        with TestClient(application) as client:
+            customer, _ = make_customer(client, headers)
+            payload = order_payload(
+                customer["id"],
+                details={"hectares": "9999999999.9999", "unit_price": "99999999999999.9999"},
             )
-
-            application = create_app()
-            application.dependency_overrides[get_db] = lambda: db
-            application.dependency_overrides[get_identity_provider] = TestIdentityProvider
-            monkeypatch.setattr(get_settings(), "private_files_path", tmp_path)
-            headers = {"Authorization": "Bearer test-identity-token", "X-Organization-ID": str(ORG)}
-            with TestClient(application) as client:
-                customer, _ = make_customer(client, headers)
-                payload = order_payload(
-                    customer["id"],
-                    details={"hectares": "9999999999.9999", "unit_price": "99999999999999.9999"},
-                )
-                response = client.post("/api/v1/orders", headers=headers, json=payload)
-                assert response.status_code == 201, response.text
-                assert response.json()["total_amount"] == "999999999999989999000000.00000001"
-                assert (
-                    client.post("/api/v1/orders", headers=headers, json=payload).json()["id"]
-                    == payload["id"]
-                )
-                from tests.test_edit_delete import update_payload
-
-                changed = client.patch(
-                    f"/api/v1/orders/{payload['id']}",
-                    headers=headers,
-                    json=update_payload(response.json()),
-                )
-                assert (
-                    changed.status_code == 200 and changed.json()["total_amount"] == "500.50000000"
-                )
-                deleted = client.delete(
-                    f"/api/v1/orders/{payload['id']}?expected_version=2", headers=headers
-                )
-                assert deleted.status_code == 200
-                assert (
-                    client.get(f"/api/v1/orders/{payload['id']}", headers=headers).status_code
-                    == 410
-                )
-                assert (
-                    client.post("/api/v1/orders", headers=headers, json=payload).status_code == 410
-                )
-                exercise_private_attachment(client, headers)
-                from app.domain.potato import calculate_potato
-                from tests.test_potato import FIXTURES, potato_input
-
-                potato_payload = order_payload(customer["id"]) | {
-                    "product_type": "potato",
-                    "details": potato_input(FIXTURES[-1]),
-                }
-                potato = client.post("/api/v1/orders", headers=headers, json=potato_payload)
-                assert potato.status_code == 201, potato.text
-                assert potato.json()["potato"] == calculate_potato(potato_payload["details"])
-                order_id = UUID(potato.json()["id"])
-                legacy = calculate_potato(potato_payload["details"], version="potato-v1")
-                db.get(PotatoDetails, order_id).calculation_version = "potato-v1"
-                db.get(Order, order_id).total_amount = Decimal(legacy["total_amount"])
-                db.commit()
-                with pytest.raises(RuntimeError, match="cobros o remisiones"):
-                    command.downgrade(config, "0006_editable_shrinkage")
-                db.execute(update(Order).values(remission_number=None))
-                db.commit()
-                command.downgrade(config, "0004_potato")
-                command.upgrade(config, "head")
-                db.expire_all()
-                historical = client.get(f"/api/v1/orders/{order_id}", headers=headers)
-                assert historical.json()["potato"] == legacy
-                assert historical.json()["total_amount"] == legacy["total_amount"]
-                potato = client.patch(
-                    f"/api/v1/orders/{order_id}",
-                    headers=headers,
-                    json={key: value for key, value in potato_payload.items() if key != "id"}
-                    | {"expected_version": 1},
-                )
-                assert potato.status_code == 200, potato.text
-                assert potato.json()["potato"]["calculation_version"] == "potato-v2"
-                update_fields = {key: value for key, value in potato_payload.items() if key != "id"}
-                manual = client.patch(
-                    f"/api/v1/orders/{order_id}",
-                    headers=headers,
-                    json=update_fields
-                    | {
-                        "expected_version": potato.json()["version"],
-                        "details": potato_payload["details"] | {"shrinkage_override": "1234.5678"},
-                    },
-                )
-                assert manual.status_code == 200, manual.text
-                assert manual.json()["potato"]["shrinkage"] == "1234.56780000"
-                assert manual.json()["total_amount"] == potato.json()["total_amount"]
-                db.commit()
-                db.execute(update(Order).values(remission_number=None))
-                db.commit()
-                with pytest.raises(RuntimeError, match="MERMA manual"):
-                    command.downgrade(config, "0005_potato_formula")
-                potato = client.patch(
-                    f"/api/v1/orders/{order_id}",
-                    headers=headers,
-                    json=update_fields
-                    | {
-                        "expected_version": manual.json()["version"],
-                        "details": potato_payload["details"],
-                    },
-                )
-                assert potato.status_code == 200, potato.text
-                assert potato.json()["potato"]["shrinkage_override"] is None
-                db.commit()
-                db.execute(update(Order).values(remission_number=None))
-                db.commit()
-                with pytest.raises(RuntimeError, match="existen pedidos de papa"):
-                    command.downgrade(config, "0003_edit_delete")
-                converted = client.patch(
-                    f"/api/v1/orders/{potato.json()['id']}",
-                    headers=headers,
-                    json=update_payload(potato.json())
-                    | {
-                        "product_type": "carrot",
-                        "details": {"hectares": "1.25", "unit_price": "100.50"},
-                    },
-                )
-                assert converted.status_code == 200, converted.text
-                assert converted.json()["total_amount"] == "125.62500000"
-                from tests.test_payments import (
-                    exercise_postgresql_payment_concurrency,
-                    test_order_can_be_deleted_after_removing_all_active_payments,
-                )
-
-                test_order_can_be_deleted_after_removing_all_active_payments(
-                    client, headers, db, "void"
-                )
-                exercise_postgresql_payment_concurrency(engine, client, headers)
-                db.commit()
-                with pytest.raises(RuntimeError, match="cobros o remisiones"):
-                    command.downgrade(config, "0006_editable_shrinkage")
-                # Synthetic records in the verified, initially empty *_test database only.
-                exercise_postgresql_remission_migration(engine, client, headers, config, db)
-                db.execute(delete(PaymentAllocation))
-                db.execute(delete(PaymentApplication))
-                db.execute(delete(Payment))
-                db.execute(update(Order).values(remission_number=None))
-                db.commit()
-        command.downgrade(config, "base")
-        assert inspect(engine).get_table_names() == ["alembic_version"]
+            created = client.post("/api/v1/orders", headers=headers, json=payload)
+            assert created.status_code == 201, created.text
+            assert created.json()["total_amount"] == "999999999999989999000000.00000001"
+            operation = str(uuid4())
+            edit = update_payload(created.json())
+            key_headers = headers | {"Idempotency-Key": operation}
+            assert (
+                client.patch(
+                    f"/api/v1/orders/{payload['id']}", headers=key_headers, json=edit
+                ).status_code
+                == 200
+            )
+            assert (
+                client.patch(
+                    f"/api/v1/orders/{payload['id']}", headers=key_headers, json=edit
+                ).headers["X-Operation-Replayed"]
+                == "true"
+            )
+            audit = client.get(
+                f"/api/v1/audit-events?operation_id={operation}", headers=headers
+            ).json()["items"]
+            assert len(audit) == 1 and audit[0]["schema_version"] == 2
+            assert audit[0]["occurred_at_utc"].endswith("Z")
+            exercise_private_attachment(client, headers)
+            exercise_postgresql_payment_concurrency(engine, client, headers)
+        with engine.begin() as connection:
+            with pytest.raises(IntegrityError):
+                connection.execute(text("UPDATE audit_events SET action='tampered'"))
+        with pytest.raises(RuntimeError, match="No automatic downgrade"):
+            command.downgrade(config, "0008_reusable_remissions")
     finally:
-        # Cleanup is limited to the empty, dedicated *_test database verified above.
-        from sqlalchemy import text
-
+        # Only this initially empty, synthetic *_test database is cleaned up.
         with engine.begin() as connection:
             connection.execute(text("DROP SCHEMA public CASCADE"))
             connection.execute(text("CREATE SCHEMA public"))

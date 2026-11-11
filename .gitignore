@@ -17,4 +17,10 @@ test-results/
 .local/
 *.log
 *.tsbuildinfo
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+migration-snapshots/
+migration-snapshots-postgresql/
 .DS_Store

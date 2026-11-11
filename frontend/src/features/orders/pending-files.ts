@@ -11,6 +11,8 @@ import {
 } from '../../lib/business-api'
 import { ApiError } from '../../lib/api-error'
 import { allowedFilename } from '../../lib/attachment-policy'
+import { sqliteWorkspace } from '../../lib/env'
+import { SQLiteCaptures, hydrateLocalFile } from '../../lib/sqlite-captures'
 
 export type SelectedFile = { manifest: AttachmentManifest; blob: File }
 type PendingFile = SelectedFile & { key: string; scope: string; orderId: string }
@@ -27,12 +29,25 @@ export type PendingDraft = {
   lastError?: string
   createdAt: string
 }
-const database = new Dexie('agrocontrol-pending-attachments') as Dexie & {
+type PendingDatabase = Dexie & {
   files: EntityTable<PendingFile, 'key'>
   drafts: EntityTable<PendingDraft, 'key'>
 }
-database.version(1).stores({ files: 'key, scope, [scope+orderId]' })
-database.version(2).stores({ drafts: 'key, scope' })
+const sqliteStore = sqliteWorkspace ? new SQLiteCaptures() : undefined
+const database = (sqliteStore
+  ? sqliteStore
+  : new Dexie('agrocontrol-pending-attachments')) as unknown as PendingDatabase
+if (!sqliteWorkspace) {
+  database.version(1).stores({ files: 'key, scope, [scope+orderId]' })
+  database.version(2).stores({ drafts: 'key, scope' })
+}
+function captureTransaction<T>(callback: (database: PendingDatabase) => Promise<T>): Promise<T> {
+  return sqliteStore
+    ? sqliteStore.transaction('rw', (transaction) =>
+        callback(transaction as unknown as PendingDatabase),
+      )
+    : database.transaction('rw', database.files, database.drafts, () => callback(database))
+}
 function scope(principal: Principal) {
   return `${principal.organization_id}:${principal.user_id}`
 }
@@ -63,8 +78,13 @@ export async function prepareFiles(files: File[]): Promise<SelectedFile[]> {
   return selected
 }
 
-export async function retainFiles(principal: Principal, orderId: string, files: SelectedFile[]) {
-  await database.files.bulkPut(
+export async function retainFiles(
+  principal: Principal,
+  orderId: string,
+  files: SelectedFile[],
+  target = database,
+) {
+  await target.files.bulkPut(
     files.map((file) => ({
       ...file,
       key: `${scope(principal)}:${file.manifest.id}`,
@@ -84,7 +104,7 @@ export async function uploadRetained(principal: Principal, orderId: string) {
       await request<Attachment>(`/orders/${orderId}/attachments/${file.manifest.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/octet-stream' },
-        body: file.blob,
+        body: sqliteWorkspace ? (await hydrateLocalFile(file)).blob : file.blob,
       })
       await database.files.delete(file.key)
     } catch (cause) {
@@ -120,7 +140,18 @@ export async function retainDraft(
     attempted: false,
     ...metadata,
   }
-  await database.transaction('rw', database.files, database.drafts, async () => {
+  // Commit the capture before staging binary uploads. An interrupted upload must
+  // leave the original manifest and fields recoverable after restarting the API.
+  if (sqliteWorkspace) {
+    await captureTransaction(async (database) => {
+      const previous = await database.drafts.get(draft.key)
+      if (previous?.attempted && JSON.stringify(previous.payload) !== JSON.stringify(payload))
+        throw new ApiError(409, 'Confirma el envío anterior antes de cambiar la captura.')
+      if (previous) draft.attempted = previous.attempted ?? true
+      await database.drafts.put(draft)
+    })
+  }
+  await captureTransaction(async (database) => {
     const previous = await database.drafts.get(draft.key)
     if (
       previous?.attempted !== false &&
@@ -132,7 +163,7 @@ export async function retainDraft(
         'Esta captura ya se intentó enviar. Confirma su estado antes de cambiarla.',
       )
     if (previous) draft.attempted = previous.attempted ?? true
-    await retainFiles(principal, orderId, files)
+    await retainFiles(principal, orderId, files, database)
     const wanted = new Set(payload.attachments.map((file) => file.id))
     await database.files
       .where('[scope+orderId]')
@@ -145,7 +176,7 @@ export async function retainDraft(
 }
 export async function commitDraft(principal: Principal, draft: PendingDraft) {
   if (draft.scope !== scope(principal)) throw new Error('Este envío pertenece a otra sesión.')
-  await database.transaction('rw', database.drafts, async () => {
+  await captureTransaction(async (database) => {
     const current = await database.drafts.get(draft.key)
     if (!current || JSON.stringify(current.payload) !== JSON.stringify(draft.payload))
       throw new ApiError(
@@ -201,7 +232,7 @@ export async function reopenOrderCreation(principal: Principal, draft: PendingDr
   } catch (cause) {
     if (!(cause instanceof ApiError) || cause.status !== 404) throw cause
   }
-  await database.transaction('rw', database.drafts, async () => {
+  await captureTransaction(async (database) => {
     const current = await database.drafts.get(draft.key)
     if (!current || JSON.stringify(current.payload) !== JSON.stringify(draft.payload))
       throw new Error('La captura cambió. Vuelve a abrirla antes de corregirla.')
@@ -213,10 +244,22 @@ export async function reopenOrderCreation(principal: Principal, draft: PendingDr
   })
 }
 export async function getRetainedFiles(principal: Principal, orderId: string) {
-  return database.files
+  const files = await database.files
     .where('[scope+orderId]')
     .equals([scope(principal), orderId])
     .toArray()
+  if (!sqliteWorkspace) return files
+  const originals: PendingFile[] = []
+  for (const file of files) {
+    try {
+      originals.push(await hydrateLocalFile(file))
+    } catch (cause) {
+      // Keep the draft manifest so its editor requires the original again.
+      // A missing or corrupt staged file must not make the capture inaccessible.
+      if (!(cause instanceof ApiError) || ![404, 503].includes(cause.status)) throw cause
+    }
+  }
+  return originals
 }
 
 export async function resolvePendingConflict(
@@ -232,7 +275,7 @@ export async function resolvePendingConflict(
   )
     throw new Error('La captura no corresponde a este pedido.')
   let resolved: PendingDraft | undefined
-  await database.transaction('rw', database.drafts, database.files, async () => {
+  await captureTransaction(async (database) => {
     const current = await database.drafts.get(draft.key)
     if (
       !current ||
@@ -286,7 +329,7 @@ export function synchronizePending(principal: Principal): Promise<number> {
 }
 
 export async function discardPendingOrder(principal: Principal, orderId: string) {
-  await database.transaction('rw', database.files, database.drafts, async () => {
+  await captureTransaction(async (database) => {
     await database.drafts.delete(`${scope(principal)}:${orderId}`)
     await database.files
       .where('[scope+orderId]')

@@ -1,5 +1,24 @@
 # Historial de cambios
 
+## 2026-10-21 · Fase 4, etapa B: integridad y trazabilidad
+
+- Auditoría v2 con valores observados anteriores/nuevos, autor, fecha UTC y operación; los eventos anteriores se conservan sin completar valores desconocidos.
+- Motivo obligatorio para eliminar clientes/pedidos; eliminación lógica y reglas financieras conservadas.
+- Comprobantes transaccionales durables para altas, ediciones, anulaciones, aplicaciones, capturas y documentos; resultados inciertos y reintentos con el envío original.
+- Migraciones incrementales SQLite `local_0003`/`local_0004` y PostgreSQL `0009_audit_operations`, con copia local consistente/verificada antes de actualizar una instalación existente.
+- Diagnóstico de relaciones, fórmulas, saldos, remisiones y documentos; conciliación de archivos verificados y conservación de temporales antiguos sin purgar originales.
+- Identidad y manifiestos para conservación futura. Respaldo externo pendiente; sin SharePoint, Excel, dashboard ni instaladores. [Informe](docs/24_phase4_integrity_report.md).
+
+## 2026-10-21 · Fase 2: SQLite local
+
+- React utiliza una API FastAPI autorizada en loopback y SQLite persistente en la carpeta del usuario, con documentos en disco.
+- Historia Alembic local independiente, entradas decimales exactas, transacciones de escritura serializadas, auditoría y conservación lógica del historial.
+- Capturas pendientes y documentos preparados en SQLite/disco, reintentos con los mismos UUID y recuperación de interrupciones.
+- IndexedDB permanece intacto: aviso de migración pendiente, sin importación ni reenvío de registros históricos.
+- Se conserva el modo privado PostgreSQL. No se implementan instaladores, Tauri, Excel o SharePoint; respaldo externo pendiente.
+- [Configuración, comportamiento, pruebas y límites](docs/22_sqlite_local.md).
+- Revisión posterior al cierre de VS Code: aislamiento de capturas concurrentes, recuperación de originales faltantes y espera de saldos antes de guardar abonos. Pruebas adicionales de cierres abruptos durante cobros. [Informe de etapa B](docs/23_sqlite_stage_b_report.md).
+
 ## 2026-10-21 · Reutilización de remisiones eliminadas
 
 - Eliminar un pedido libera su remisión para otro pedido del mismo producto. También permite editar un pedido para usar el número liberado y mantiene el rechazo de duplicados vigentes.

@@ -17,6 +17,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       VITE_ENABLE_LOCAL_WORKSPACE: 'true',
+      VITE_LEGACY_LOCAL_TESTS: 'true',
       VITE_ENABLE_PREVIEW: 'true',
       VITE_SUPABASE_URL: '',
       VITE_SUPABASE_PUBLISHABLE_KEY: '',

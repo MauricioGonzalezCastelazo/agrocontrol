@@ -1,6 +1,6 @@
 import hashlib
 import json
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -28,9 +28,9 @@ from app.modules.schemas import (
     OrderUpdate,
     calculate_total,
 )
+from app.modules.transactions import audit, commit
 from app.persistence.models import (
     Attachment,
-    AuditEvent,
     CarrotDetails,
     Customer,
     Order,
@@ -39,10 +39,12 @@ from app.persistence.models import (
 )
 
 
-def fingerprint(payload) -> str:
+def fingerprint(payload, *, precision=80) -> str:
     def canonical(value):
         if isinstance(value, Decimal):
-            return format(value.normalize(), "f")
+            with localcontext() as context:
+                context.prec = precision
+                return format(value.normalize(), "f")
         if isinstance(value, dict):
             return {k: canonical(v) for k, v in value.items()}
         if isinstance(value, list):
@@ -60,17 +62,6 @@ def fingerprint(payload) -> str:
         values["details"].pop("shrinkage_override", None)
     data = json.dumps(canonical(values), sort_keys=True, default=str, ensure_ascii=False)
     return hashlib.sha256(data.encode()).hexdigest()
-
-
-def audit(db: Session, principal: Principal, action: str, record_id: UUID):
-    db.add(
-        AuditEvent(
-            organization_id=principal.organization_id,
-            actor_id=principal.user_id,
-            action=action,
-            record_id=record_id,
-        )
-    )
 
 
 def customer_by_id(
@@ -110,7 +101,7 @@ def create_customer(db: Session, principal: Principal, payload: CustomerCreate) 
     db.add(customer)
     audit(db, principal, "customer.created", payload.id)
     try:
-        db.commit()
+        commit(db)
     except IntegrityError:
         db.rollback()
         return retry()
@@ -139,7 +130,7 @@ def edit_customer(db: Session, principal: Principal, customer_id: UUID, payload:
         db.rollback()
         raise HTTPException(409, "El cliente cambió. Actualiza la página antes de editarlo.")
     audit(db, principal, "customer.updated", customer_id)
-    db.commit()
+    commit(db)
     db.expire_all()
     return customer_by_id(db, principal, customer_id)
 
@@ -338,7 +329,7 @@ def create_order(db: Session, principal: Principal, payload: OrderCreate) -> Ord
                 )
             )
         audit(db, principal, "order.created", order.id)
-        db.commit()
+        commit(db)
     except IntegrityError:
         db.rollback()
         if db.scalar(
@@ -380,7 +371,7 @@ def delete_customer(db: Session, principal: Principal, customer_id: UUID, expect
         db.rollback()
         raise HTTPException(409, "El cliente cambió. Recarga antes de eliminarlo.")
     audit(db, principal, "customer.deleted", customer_id)
-    db.commit()
+    commit(db)
 
 
 def delete_order(db: Session, principal: Principal, order_id: UUID, expected_version: int):
@@ -412,7 +403,7 @@ def delete_order(db: Session, principal: Principal, order_id: UUID, expected_ver
         db.rollback()
         raise HTTPException(409, "El pedido cambió. Recarga antes de eliminarlo.")
     audit(db, principal, "order.deleted", order_id)
-    db.commit()
+    commit(db)
 
 
 def edit_order(db: Session, principal: Principal, order_id: UUID, payload: OrderUpdate):
@@ -506,7 +497,7 @@ def edit_order(db: Session, principal: Principal, order_id: UUID, payload: Order
             if previous.id not in wanted and previous.deleted_at is None:
                 previous.deleted_at = func.now()
         audit(db, principal, "order.updated", order_id)
-        db.commit()
+        commit(db)
     except (IntegrityError, HTTPException) as error:
         db.rollback()
         if isinstance(error, HTTPException):

@@ -15,7 +15,8 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { Brand } from '../components/ui'
 import { useAuth } from '../features/auth/AuthProvider'
-import { localWorkspace } from '../lib/env'
+import { localWorkspace, sqliteWorkspace } from '../lib/env'
+import { LocalStorageNotice } from '../components/LocalStorageNotice'
 import { synchronizePending } from '../features/orders/pending-files'
 import { useQueryClient } from '@tanstack/react-query'
 import { verifiedScope } from '../lib/session-scope'
@@ -100,7 +101,9 @@ export function Layout({ preview = false }: { preview?: boolean }) {
             <strong>Espacio de trabajo</strong>
             <small>
               {localWorkspace
-                ? 'Guardado en este navegador'
+                ? sqliteWorkspace
+                  ? 'Guardado local en SQLite'
+                  : 'Guardado en este navegador'
                 : preview
                   ? 'Vista previa del diseño'
                   : 'Operación agrícola'}
@@ -129,7 +132,11 @@ export function Layout({ preview = false }: { preview?: boolean }) {
               <strong>{localWorkspace ? 'Tu espacio local' : 'Un espacio privado'}</strong>
               <p>
                 {localWorkspace ? (
-                  'Clientes, pedidos y archivos guardados en este navegador.'
+                  sqliteWorkspace ? (
+                    'Clientes, pedidos y archivos guardados en este equipo.'
+                  ) : (
+                    'Clientes, pedidos y archivos guardados en este navegador.'
+                  )
                 ) : (
                   <>
                     Información de tu operación,
@@ -186,7 +193,11 @@ export function Layout({ preview = false }: { preview?: boolean }) {
         {localWorkspace && (
           <div className="preview-strip">
             Modo local · Guardado habilitado
-            <span>Los datos se conservan en este navegador. Aún no se envían a la nube.</span>
+            <span>
+              {sqliteWorkspace
+                ? 'Guardado local en SQLite · Pendiente de respaldo externo.'
+                : 'Los datos se conservan en este navegador. Aún no se envían a la nube.'}
+            </span>
           </div>
         )}
         {preview && (
@@ -196,6 +207,7 @@ export function Layout({ preview = false }: { preview?: boolean }) {
           </div>
         )}
         <main id="main-content" tabIndex={-1}>
+          {sqliteWorkspace && <LocalStorageNotice />}
           <Outlet />
         </main>
         <footer className="app-footer">

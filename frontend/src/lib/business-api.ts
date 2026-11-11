@@ -1,5 +1,5 @@
 import { accessToken } from '../features/auth/AuthProvider'
-import { env, localWorkspace } from './env'
+import { env, localWorkspace, sqliteWorkspace } from './env'
 import { ApiError } from './api-error'
 import type { PotatoCalculation, PotatoInput } from '../features/orders/potato-domain'
 import { scopeKey, verifiedScope } from './session-scope'
@@ -65,6 +65,13 @@ export async function request<T>(
   options: RequestInit = {},
   expectedPrincipal?: Principal,
 ): Promise<T> {
+  if (sqliteWorkspace) {
+    const { localRequest, initializeLocal } = await import('./local-api')
+    const principal = (await initializeLocal()).principal
+    if (expectedPrincipal && scopeKey(principal) !== scopeKey(expectedPrincipal))
+      throw new ApiError(401, 'La captura pertenece a otro espacio local.')
+    return localRequest<T>(path, options)
+  }
   if (import.meta.env.DEV && localWorkspace) {
     const { localRequest } = await import('./local-workspace')
     return localRequest<T>(path, options)
@@ -91,6 +98,12 @@ export async function request<T>(
   } catch (cause) {
     if (isRead && allowCached && cause instanceof TypeError)
       return (await import('./private-cache')).cachedPrivate<T>(path)
+    if (!isRead)
+      throw new ApiError(
+        0,
+        'No se pudo confirmar el resultado. Conserva la captura y reintenta con los mismos datos e identificador.',
+        'uncertain',
+      )
     throw cause
   }
   if (!response.ok) {
@@ -106,11 +119,27 @@ export async function request<T>(
     throw new ApiError(
       response.status,
       response.status === 401 ? 'Tu sesión venció. Vuelve a ingresar.' : message,
+      response.status >= 500 ? 'uncertain' : 'rejected',
+      response.headers.get('X-Operation-ID') || undefined,
     )
   }
-  const value = (await response.json()) as T
+  let value: T
+  try {
+    value = (await response.json()) as T
+  } catch {
+    throw new ApiError(
+      0,
+      'La respuesta quedó incompleta. El resultado es incierto; reintenta con los mismos datos.',
+      'uncertain',
+      response.headers.get('X-Operation-ID') || undefined,
+    )
+  }
   if (!authorization || authorization !== verifiedScope())
-    throw new ApiError(401, 'La sesión cambió o venció. Vuelve a ingresar.')
+    throw new ApiError(
+      401,
+      'La sesión cambió o venció. Vuelve a ingresar.',
+      isRead ? 'rejected' : 'uncertain',
+    )
   if (isRead || options.method === 'PATCH' || options.method === 'POST')
     await (await import('./private-cache')).rememberPrivate(path, value).catch(() => undefined)
   if (options.method === 'DELETE')
@@ -119,6 +148,14 @@ export async function request<T>(
 }
 
 export async function downloadAttachment(orderId: string, attachment: Attachment) {
+  if (sqliteWorkspace) {
+    const { localFetch } = await import('./local-api')
+    saveBlob(
+      await (await localFetch(`/orders/${orderId}/attachments/${attachment.id}/download`)).blob(),
+      attachment.filename,
+    )
+    return
+  }
   if (import.meta.env.DEV && localWorkspace) {
     const { localAttachment } = await import('./local-workspace')
     saveBlob(await localAttachment(orderId, attachment), attachment.filename)

@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -13,11 +13,13 @@ from app.modules.schemas import (
     CustomerResponse,
     CustomerUpdate,
     DeletedResponse,
+    DeleteReason,
     OrderCreate,
     OrderPage,
     OrderResponse,
     OrderUpdate,
 )
+from app.modules.transactions import execute
 from app.persistence.database import get_db
 from app.persistence.models import Customer, Order
 
@@ -57,8 +59,18 @@ def customers(
 
 
 @router.post("/customers", response_model=CustomerResponse, status_code=201, tags=["customers"])
-def create_customer(payload: CustomerCreate, db: Database, principal: Current):
-    return service.create_customer(db, principal, payload)
+def create_customer(payload: CustomerCreate, request: Request, db: Database, principal: Current):
+    return execute(
+        db,
+        principal,
+        request,
+        "customer.created",
+        payload.id,
+        payload.model_dump(mode="json"),
+        lambda: service.create_customer(db, principal, payload),
+        CustomerResponse,
+        201,
+    )
 
 
 @router.get("/customers/{customer_id}", response_model=CustomerResponse, tags=["customers"])
@@ -67,16 +79,44 @@ def customer(customer_id: UUID, db: Database, principal: Current):
 
 
 @router.patch("/customers/{customer_id}", response_model=CustomerResponse, tags=["customers"])
-def edit_customer(customer_id: UUID, payload: CustomerUpdate, db: Database, principal: Admin):
-    return service.edit_customer(db, principal, customer_id, payload)
+def edit_customer(
+    customer_id: UUID, payload: CustomerUpdate, request: Request, db: Database, principal: Admin
+):
+    return execute(
+        db,
+        principal,
+        request,
+        "customer.updated",
+        customer_id,
+        payload.model_dump(mode="json"),
+        lambda: service.edit_customer(db, principal, customer_id, payload),
+        CustomerResponse,
+    )
 
 
 @router.delete("/customers/{customer_id}", response_model=DeletedResponse, tags=["customers"])
 def delete_customer(
-    customer_id: UUID, db: Database, principal: Admin, expected_version: int = Query(gt=0)
+    customer_id: UUID,
+    payload: DeleteReason,
+    request: Request,
+    db: Database,
+    principal: Admin,
+    expected_version: int = Query(gt=0),
 ):
-    service.delete_customer(db, principal, customer_id, expected_version)
-    return DeletedResponse(id=customer_id)
+    def remove():
+        service.delete_customer(db, principal, customer_id, expected_version)
+        return DeletedResponse(id=customer_id)
+
+    return execute(
+        db,
+        principal,
+        request,
+        "customer.deleted",
+        customer_id,
+        {"expected_version": expected_version, "reason": payload.reason},
+        remove,
+        DeletedResponse,
+    )
 
 
 @router.get("/orders", response_model=OrderPage, tags=["orders"])
@@ -125,8 +165,18 @@ def orders(
 
 
 @router.post("/orders", response_model=OrderResponse, status_code=201, tags=["orders"])
-def create_order(payload: OrderCreate, db: Database, principal: Current):
-    return service.order_response(db, principal, service.create_order(db, principal, payload))
+def create_order(payload: OrderCreate, request: Request, db: Database, principal: Current):
+    return execute(
+        db,
+        principal,
+        request,
+        "order.created",
+        payload.id,
+        payload.model_dump(mode="json"),
+        lambda: service.order_response(db, principal, service.create_order(db, principal, payload)),
+        OrderResponse,
+        201,
+    )
 
 
 @router.get("/orders/{order_id}", response_model=OrderResponse, tags=["orders"])
@@ -135,15 +185,43 @@ def order(order_id: UUID, db: Database, principal: Current):
 
 
 @router.patch("/orders/{order_id}", response_model=OrderResponse, tags=["orders"])
-def edit_order(order_id: UUID, payload: OrderUpdate, db: Database, principal: Current):
-    return service.order_response(
-        db, principal, service.edit_order(db, principal, order_id, payload)
+def edit_order(
+    order_id: UUID, payload: OrderUpdate, request: Request, db: Database, principal: Current
+):
+    return execute(
+        db,
+        principal,
+        request,
+        "order.updated",
+        order_id,
+        payload.model_dump(mode="json"),
+        lambda: service.order_response(
+            db, principal, service.edit_order(db, principal, order_id, payload)
+        ),
+        OrderResponse,
     )
 
 
 @router.delete("/orders/{order_id}", response_model=DeletedResponse, tags=["orders"])
 def delete_order(
-    order_id: UUID, db: Database, principal: Current, expected_version: int = Query(gt=0)
+    order_id: UUID,
+    payload: DeleteReason,
+    request: Request,
+    db: Database,
+    principal: Current,
+    expected_version: int = Query(gt=0),
 ):
-    service.delete_order(db, principal, order_id, expected_version)
-    return DeletedResponse(id=order_id)
+    def remove():
+        service.delete_order(db, principal, order_id, expected_version)
+        return DeletedResponse(id=order_id)
+
+    return execute(
+        db,
+        principal,
+        request,
+        "order.deleted",
+        order_id,
+        {"expected_version": expected_version, "reason": payload.reason},
+        remove,
+        DeletedResponse,
+    )

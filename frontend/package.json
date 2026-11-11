@@ -15,7 +15,8 @@
     "test:production": "playwright test -c playwright.production.config.ts",
     "test:online": "playwright test -c playwright.online.config.ts",
     "test:local": "playwright test -c playwright.local.config.ts",
-    "format:check": "prettier --check src *.ts *.js *.json e2e production-e2e online-e2e local-e2e"
+    "test:sqlite": "playwright test -c playwright.sqlite.config.ts",
+    "format:check": "prettier --check src *.ts *.js *.json e2e production-e2e online-e2e local-e2e sqlite-e2e"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

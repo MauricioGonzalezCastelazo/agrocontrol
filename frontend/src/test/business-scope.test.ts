@@ -8,6 +8,7 @@ vi.mock('../features/auth/AuthProvider', () => ({ accessToken: vi.fn() }))
 vi.mock('../lib/env', () => ({
   env: { apiUrl: '/api/v1', organizationId: 'organization' },
   localWorkspace: false,
+  sqliteWorkspace: false,
 }))
 const original: Principal = {
   organization_id: 'organization',

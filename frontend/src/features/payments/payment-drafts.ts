@@ -3,6 +3,8 @@ import type { Principal } from '../../lib/api'
 import { request } from '../../lib/business-api'
 import { ApiError } from '../../lib/api-error'
 import type { ApplicationInput, PaymentInput, Payment } from './domain'
+import { sqliteWorkspace } from '../../lib/env'
+import { SQLiteCaptures } from '../../lib/sqlite-captures'
 
 export type PaymentDraft = {
   key: string
@@ -16,10 +18,21 @@ export type PaymentDraft = {
   | { kind: 'receipt'; payload: PaymentInput; paymentId?: never }
   | { kind: 'application'; payload: ApplicationInput; paymentId: string }
 )
-const db = new Dexie('agrocontrol-pending-payments') as Dexie & {
+type PaymentDatabase = Dexie & {
   drafts: EntityTable<PaymentDraft, 'key'>
 }
-db.version(1).stores({ drafts: 'key, scope' })
+const sqliteStore = sqliteWorkspace ? new SQLiteCaptures() : undefined
+const db = (sqliteStore
+  ? { drafts: sqliteStore.payments }
+  : new Dexie('agrocontrol-pending-payments')) as unknown as PaymentDatabase
+if (!sqliteWorkspace) db.version(1).stores({ drafts: 'key, scope' })
+function captureTransaction<T>(callback: (database: PaymentDatabase) => Promise<T>): Promise<T> {
+  return sqliteStore
+    ? sqliteStore.transaction('rw', (transaction) =>
+        callback({ drafts: transaction.payments } as unknown as PaymentDatabase),
+      )
+    : db.transaction('rw', db.drafts, () => callback(db))
+}
 const scope = (principal: Principal) => `${principal.organization_id}:${principal.user_id}`
 type DraftInput =
   | { kind: 'receipt'; payload: PaymentInput }
@@ -27,7 +40,7 @@ type DraftInput =
 
 export async function retainPayment(principal: Principal, input: DraftInput, customerName: string) {
   const key = `${scope(principal)}:${input.payload.id}`
-  return db.transaction('rw', db.drafts, async () => {
+  return captureTransaction(async (db) => {
     const existing = await db.drafts.get(key)
     if (existing?.attempted) return existing
     const draft: PaymentDraft = {
@@ -48,7 +61,7 @@ export const getPaymentDraft = (principal: Principal, id: string) =>
   db.drafts.get(`${scope(principal)}:${id}`)
 export async function commitPayment(principal: Principal, draft: PaymentDraft): Promise<Payment> {
   if (draft.scope !== scope(principal)) throw new Error('La captura pertenece a otra cuenta.')
-  await db.transaction('rw', db.drafts, async () => {
+  await captureTransaction(async (db) => {
     const current = await db.drafts.get(draft.key)
     if (
       !current ||

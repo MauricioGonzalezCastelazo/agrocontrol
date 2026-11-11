@@ -4,7 +4,7 @@ import { Map } from 'lucide-react'
 import { Layout } from './Layout'
 import { useAuth } from '../features/auth/AuthProvider'
 import { ActionLink, EmptyState, LoadingState } from '../components/ui'
-import { env, localWorkspace } from '../lib/env'
+import { env, localWorkspace, sqliteWorkspace } from '../lib/env'
 import { useBase } from './useBase'
 import { SyncPage } from '../features/sync/SyncPage'
 import { AccountsPage, CustomerAccountPage } from '../features/payments/AccountPages'
@@ -43,7 +43,23 @@ const SettingsPage = lazy(() =>
 )
 
 function RequireSession() {
-  return useAuth().principal ? <Outlet /> : <Navigate to="/login" replace />
+  const { principal, loading, error } = useAuth()
+  if (sqliteWorkspace && loading) return <LoadingState />
+  if (sqliteWorkspace && !principal)
+    return (
+      <div className="panel">
+        <h1>No se pudo abrir AgroControl</h1>
+        <p role="alert">{error}</p>
+        <p>
+          Inicia python main.py y abre el navegador desde ese arranque. Tus datos anteriores se
+          conservan.
+        </p>
+        <button className="button button-secondary" onClick={() => window.location.reload()}>
+          Reintentar
+        </button>
+      </div>
+    )
+  return principal ? <Outlet /> : <Navigate to="/login" replace />
 }
 function OpenLocalWorkspace() {
   const location = useLocation()

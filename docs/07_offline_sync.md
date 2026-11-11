@@ -1,5 +1,7 @@
 ﻿# 07 · Trabajo sin conexión y sincronización
 
+**Fase 2 local vigente:** el arranque normal utiliza FastAPI + SQLite y documentos persistentes. IndexedDB se conserva sin migración histórica. El modo privado PostgreSQL continúa disponible. [Arquitectura, integridad y límites actuales](22_sqlite_local.md).
+
 ## Implementado
 
 Modo local de desarrollo: clientes, ambos productos y archivos en el navegador, sin cuenta ni servidor. Acceso privado: autenticación online; durante la misma sesión verificada vigente permite usar registros consultados y capturar pedidos sin red. El modo local no envía sus datos a la API privada.

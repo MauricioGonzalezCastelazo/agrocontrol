@@ -1,5 +1,7 @@
 # Corrección: botones bloqueados y guardado local
 
+**Fase 2 local vigente:** el arranque normal utiliza FastAPI + SQLite y documentos persistentes. IndexedDB se conserva sin migración histórica. El modo privado PostgreSQL continúa disponible. [Arquitectura, integridad y límites actuales](22_sqlite_local.md).
+
 ## Problema y resultado
 
 El usuario estaba abriendo `/vista-previa`, que deshabilitaba altas y guardado de manera deliberada. Aún no dispone de un proyecto Supabase, por lo que tampoco podía entrar al espacio privado. Quitar simplemente los atributos `disabled` habría dejado las peticiones sin autenticación y sin persistencia.

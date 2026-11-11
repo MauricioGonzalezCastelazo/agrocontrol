@@ -4,7 +4,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.modules import operations as orders
 from app.modules.balances import add, amount, order_paid, payment_applied, subtract
-from app.modules.payment_schemas import ApplicationInput
+from app.modules.payment_schemas import ApplicationInput, PaymentInput
+from app.modules.transactions import commit
 from app.persistence.models import Customer, Order, Payment, PaymentAllocation, PaymentApplication
 
 
@@ -13,6 +14,52 @@ def payment_scope(principal):
     if principal.role != "administrator":
         clauses.append(Payment.created_by == principal.user_id)
     return clauses
+
+
+def original_allocations(db, application_id):
+    return [
+        {"order_id": line.order_id, "amount": amount(line.amount)}
+        for line in db.scalars(
+            select(PaymentAllocation).where(PaymentAllocation.application_id == application_id)
+        )
+    ]
+
+
+def matches_receipt(db, payment, payload, signature):
+    if payment.creation_hash == signature:
+        return True
+    # Earlier private releases normalized Decimal at precision 28 when hashing.
+    # Compare immutable original fields exactly instead of accepting a rounded hash.
+    original = PaymentInput(
+        id=payment.id,
+        customer_id=payment.customer_id,
+        amount=amount(payment.amount),
+        payment_date=payment.payment_date,
+        description=payment.description,
+        allocations=original_allocations(db, payment.id),
+    )
+    candidates = [original, original.model_copy(update={"allocations": []})]
+    return any(
+        orders.fingerprint(candidate) == signature
+        and orders.fingerprint(candidate, precision=28) == payment.creation_hash
+        for candidate in candidates
+    )
+
+
+def matches_application(db, application, payload):
+    signature = orders.fingerprint(payload)
+    if application.creation_hash == signature:
+        return True
+    original = ApplicationInput(
+        id=application.id,
+        application_date=application.application_date,
+        description=application.description,
+        allocations=original_allocations(db, application.id),
+    )
+    return (
+        orders.fingerprint(original) == signature
+        and orders.fingerprint(original, precision=28) == application.creation_hash
+    )
 
 
 def payment_by_id(db, principal, payment_id, *, lock=False):
@@ -149,7 +196,10 @@ def create_payment(db, principal, payload):
 
     def retry():
         payment = payment_by_id(db, principal, payload.id)
-        if payment.creation_hash != signature or payment.created_by != principal.user_id:
+        if (
+            not matches_receipt(db, payment, payload, signature)
+            or payment.created_by != principal.user_id
+        ):
             raise HTTPException(409, "Este identificador ya corresponde a otro cobro")
         return payment
 
@@ -184,7 +234,7 @@ def create_payment(db, principal, payload):
                 ),
             )
         orders.audit(db, principal, "payment.created", payment.id)
-        db.commit()
+        commit(db)
     except IntegrityError:
         db.rollback()
         return retry()
@@ -204,7 +254,7 @@ def apply_credit(db, principal, payment_id, payload):
         if (
             existing.payment_id != payment.id
             or existing.organization_id != principal.organization_id
-            or existing.creation_hash != orders.fingerprint(payload)
+            or not matches_application(db, existing, payload)
             or existing.created_by != principal.user_id
         ):
             raise HTTPException(409, "Este identificador corresponde a otra aplicación")
@@ -214,7 +264,7 @@ def apply_credit(db, principal, payment_id, payload):
     try:
         insert_application(db, principal, payment, payload)
         payment.version += 1
-        db.commit()
+        commit(db)
     except (IntegrityError, HTTPException) as error:
         db.rollback()
         if isinstance(error, HTTPException):
@@ -275,7 +325,7 @@ def void_payment(db, principal, payment_id, payload, application_id=None):
     orders.audit(
         db, principal, "payment.application_voided" if application else "payment.voided", target.id
     )
-    db.commit()
+    commit(db)
     db.refresh(payment)
     return payment
 

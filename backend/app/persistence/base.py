@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal, localcontext
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Integer, MetaData, Numeric, String, func
+from sqlalchemy import BigInteger, DateTime, Integer, MetaData, Numeric, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -20,7 +20,7 @@ class Base(DeclarativeBase):
 
 
 class ExactMoney(TypeDecorator):
-    """PostgreSQL NUMERIC; text in SQLite test databases to avoid float conversion."""
+    """PostgreSQL NUMERIC; canonical decimal text in SQLite, never binary floats."""
 
     impl = Numeric(32, 8)
     cache_ok = True
@@ -31,13 +31,60 @@ class ExactMoney(TypeDecorator):
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
+        if isinstance(value, float):
+            raise ValueError("Money must not pass through float")
         with localcontext() as context:
             context.prec = 80
-            number = Decimal(value).quantize(Decimal("0.00000001"))
+            original = Decimal(value)
+            if not original.is_finite() or abs(original) >= Decimal("1e24"):
+                raise ValueError("Money outside supported precision")
+            number = original.quantize(Decimal("0.00000001"))
+            if number != original:
+                raise ValueError("Money must have at most eight decimal places")
         return format(number, ".8f") if dialect.name == "sqlite" else number
 
     def process_result_value(self, value, dialect):
         return Decimal(value) if value is not None else None
+
+
+class ExactInput(TypeDecorator):
+    """Four-place inputs: scaled int64 in SQLite, unchanged NUMERIC in PostgreSQL."""
+
+    impl = Numeric
+    cache_ok = True
+
+    def __init__(self, precision=14):
+        self.precision = precision
+        super().__init__(precision=precision, scale=4)
+
+    def load_dialect_impl(self, dialect):
+        return dialect.type_descriptor(
+            BigInteger() if dialect.name == "sqlite" else Numeric(self.precision, 4)
+        )
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, float):
+            raise ValueError("Decimal input must not pass through float")
+        with localcontext() as context:
+            context.prec = 80
+            number = Decimal(value)
+            scaled = number * 10000
+            if (
+                not number.is_finite()
+                or abs(scaled) >= 10**self.precision
+                or scaled != scaled.to_integral_value()
+            ):
+                raise ValueError("Input outside supported precision")
+            return int(scaled) if dialect.name == "sqlite" else number
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        with localcontext() as context:
+            context.prec = 80
+            return Decimal(value) / 10000 if dialect.name == "sqlite" else Decimal(value)
 
 
 class Record:
